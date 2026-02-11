@@ -1,135 +1,67 @@
 param(
     [Parameter(Mandatory = $true)]
-    [string]$AnchorPath
+    [string]$FolderPath
 )
 
-$mutexName = "Global\MoveTo_NuclearDelete_Operation"
-$selectionRetryCount = 3
-$selectionRetryDelayMs = 200
+$logFile = Join-Path $env:TEMP "NuclearDelete.log"
 
-function Normalize-Targets {
-    param([string[]]$InputPaths)
-    @(
-        $InputPaths |
-        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
-        ForEach-Object { $_.Trim() } |
-        Select-Object -Unique
-    )
-}
-
-function Get-ExplorerSelection {
-    param([string]$AnySelectedPath)
-
-    $targets = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-    $parentPath = Split-Path -Path $AnySelectedPath -Parent
-    if ([string]::IsNullOrWhiteSpace($parentPath)) {
-        return @()
-    }
-
-    $shell = $null
+function Write-Log {
+    param([string]$Message)
     try {
-        $shell = New-Object -ComObject Shell.Application
-        $windows = $shell.Windows()
-        for ($i = 0; $i -lt $windows.Count; $i++) {
-            try {
-                $win = $windows.Item($i)
-                if ($null -eq $win -or $null -eq $win.Document) { continue }
-
-                $folder = $win.Document.Folder
-                if ($null -eq $folder -or $null -eq $folder.Self) { continue }
-
-                $windowPath = [string]$folder.Self.Path
-                if (-not [string]::Equals($windowPath, $parentPath, [StringComparison]::OrdinalIgnoreCase)) {
-                    continue
-                }
-
-                $items = $win.Document.SelectedItems()
-                if ($null -eq $items) { continue }
-
-                for ($j = 0; $j -lt $items.Count; $j++) {
-                    try {
-                        $itemPath = [string]$items.Item($j).Path
-                        if (-not [string]::IsNullOrWhiteSpace($itemPath)) {
-                            [void]$targets.Add($itemPath.Trim())
-                        }
-                    } catch { }
-                }
-
-                if ($targets.Count -gt 0) {
-                    break
-                }
-            } catch { }
-        }
+        $line = "{0} | {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"), $Message
+        Add-Content -LiteralPath $logFile -Value $line -Encoding UTF8
     } catch { }
-    finally {
-        if ($null -ne $shell) {
-            try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($shell) } catch { }
-        }
-    }
-
-    return @($targets)
 }
 
-function Resolve-Targets {
-    param([string]$AnySelectedPath)
-
-    $targets = @()
-    for ($attempt = 0; $attempt -lt $selectionRetryCount; $attempt++) {
-        $targets = Normalize-Targets -InputPaths (Get-ExplorerSelection -AnySelectedPath $AnySelectedPath)
-        if ($targets.Count -gt 0) {
-            return $targets
-        }
-
-        if ($attempt -lt ($selectionRetryCount - 1)) {
-            Start-Sleep -Milliseconds $selectionRetryDelayMs
-        }
-    }
-
-    # Fallback when Explorer selection cannot be read.
-    return (Normalize-Targets -InputPaths @($AnySelectedPath))
-}
-
-function Invoke-DeleteBatch {
-    param([string[]]$Targets)
-
-    if ($Targets.Count -eq 0) {
-        return 1
-    }
-
-    $hadError = $false
-    foreach ($targetPath in $Targets) {
-        if (-not (Test-Path -LiteralPath $targetPath)) {
-            $hadError = $true
-            continue
-        }
-
-        try {
-            if (Test-Path -LiteralPath $targetPath -PathType Container) {
-                Remove-Item -LiteralPath $targetPath -Recurse -Force -ErrorAction Stop
-            } else {
-                Remove-Item -LiteralPath $targetPath -Force -ErrorAction Stop
-            }
-        } catch {
-            $hadError = $true
-        }
-    }
-
-    if ($hadError) { return 2 }
-    return 0
-}
-
-$createdNew = $false
-$mutex = [System.Threading.Mutex]::new($true, $mutexName, [ref]$createdNew)
-if (-not $createdNew) {
-    $mutex.Dispose()
-    exit 0
+function Wait-AndExit {
+    param(
+        [int]$Code = 0
+    )
+    Write-Host "Press any key to close..." -ForegroundColor DarkGray
+    [Console]::ReadKey($true) | Out-Null
+    exit $Code
 }
 
 try {
-    $targets = Resolve-Targets -AnySelectedPath $AnchorPath
-    exit (Invoke-DeleteBatch -Targets $targets)
+    if (-not (Test-Path -LiteralPath $FolderPath -PathType Container)) {
+        Write-Host "Folder not found: $FolderPath" -ForegroundColor Red
+        Write-Log "ERROR: Folder not found: $FolderPath"
+        Wait-AndExit -Code 1
+    }
+
+    Write-Host ""
+    Write-Host "NUCLEAR DELETE (PERMANENT)" -ForegroundColor Red
+    Write-Host "Path: $FolderPath" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "Press Enter to continue, or Esc to cancel." -ForegroundColor Red
+    $key = [Console]::ReadKey($true).Key
+
+    if ($key -eq [ConsoleKey]::Escape) {
+        Write-Host "Cancelled (Esc)." -ForegroundColor Yellow
+        Write-Log "CANCELLED: $FolderPath"
+        Wait-AndExit -Code 0
+    }
+
+    if ($key -ne [ConsoleKey]::Enter) {
+        Write-Host "Cancelled (only Enter proceeds)." -ForegroundColor Yellow
+        Write-Log "CANCELLED: $FolderPath | Key=$key"
+        Wait-AndExit -Code 0
+    }
+
+    $timer = [System.Diagnostics.Stopwatch]::StartNew()
+    Write-Log "START: $FolderPath"
+    Remove-Item -LiteralPath $FolderPath -Recurse -Force -ErrorAction Stop
+    $timer.Stop()
+    $elapsed = [Math]::Round($timer.Elapsed.TotalSeconds, 3)
+
+    Write-Host "Deleted permanently: $FolderPath" -ForegroundColor Green
+    Write-Host "Elapsed: $elapsed s" -ForegroundColor Cyan
+    Write-Log "SUCCESS: $FolderPath | Elapsed=$elapsed s"
+    Wait-AndExit -Code 0
 }
-finally {
-    try { $mutex.ReleaseMutex() | Out-Null } catch { }
-    $mutex.Dispose()
+catch {
+    Write-Host "Delete failed: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Log "ERROR: $FolderPath | $($_.Exception.Message)"
+    Write-Host "Log: $logFile" -ForegroundColor Yellow
+    Wait-AndExit -Code 2
 }
