@@ -1,0 +1,6 @@
+Windows Registry Editor Version 5.00
+
+; Removes old RoboDelete folder context-menu entry (if previously installed)
+; Scope: current user only
+
+[-HKEY_CURRENT_USER\Software\Classes\Directory\shell\RoboDeleteFast]

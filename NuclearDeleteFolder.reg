@@ -1,0 +1,25 @@
+Windows Registry Editor Version 5.00
+
+; Files + folders permanent delete context menu (no Recycle Bin)
+; Scope: current user only
+
+[-HKEY_CURRENT_USER\Software\Classes\Directory\shell\NuclearDeleteFolder]
+[-HKEY_CURRENT_USER\Software\Classes\Directory\shell\z_10_DeleteToOblivion]
+[-HKEY_CURRENT_USER\Software\Classes\Directory\ContextMenus\DeleteToOblivion]
+[-HKEY_CURRENT_USER\Software\Classes\AllFilesystemObjects\shell\z_10_DeleteToOblivion]
+[-HKEY_CURRENT_USER\Software\Classes\AllFilesystemObjects\ContextMenus\DeleteToOblivion]
+
+[HKEY_CURRENT_USER\Software\Classes\AllFilesystemObjects\shell\z_10_DeleteToOblivion]
+"MUIVerb"="Delete to Oblivion"
+"Icon"="imageres.dll,-94"
+"Position"="Bottom"
+"SeparatorBefore"=""
+"ExtendedSubCommandsKey"="AllFilesystemObjects\\ContextMenus\\DeleteToOblivion"
+
+[HKEY_CURRENT_USER\Software\Classes\AllFilesystemObjects\ContextMenus\DeleteToOblivion\shell\run]
+"MUIVerb"="Delete Permanently"
+"Icon"="imageres.dll,-94"
+"MultiSelectModel"="Document"
+
+[HKEY_CURRENT_USER\Software\Classes\AllFilesystemObjects\ContextMenus\DeleteToOblivion\shell\run\command]
+@="wscript.exe \"D:\\Users\\joty79\\scripts\\MoveTo\\NuclearDelete\\NuclearDeleteFolder.vbs\" \"%1\""
