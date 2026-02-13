@@ -4,7 +4,7 @@ Dim shell, fso, scriptPath, stateRoot, lockFile
 Dim cmd, targetPath, lockAcquired, rc
 Set shell = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
-scriptPath = "D:\Users\joty79\scripts\MoveTo\NuclearDelete\NuclearDeleteFolder.ps1"
+scriptPath = "D:\Users\joty79\scripts\NuclearDelete\NuclearDeleteFolder.ps1"
 stateRoot = shell.ExpandEnvironmentStrings("%LOCALAPPDATA%") & "\MoveTo\NuclearDelete"
 lockFile = stateRoot & "\worker.lock"
 

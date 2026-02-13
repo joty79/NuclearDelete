@@ -19,4 +19,4 @@ Windows Registry Editor Version 5.00
 "Icon"="imageres.dll,-94"
 
 [HKEY_CURRENT_USER\Software\Classes\Directory\ContextMenus\DeleteToOblivion\shell\run\command]
-@="wscript.exe \"D:\\Users\\joty79\\scripts\\MoveTo\\NuclearDelete\\NuclearDeleteFolder.vbs\" \"%1\""
+@="wscript.exe \"D:\\Users\\joty79\\scripts\\NuclearDelete\\NuclearDeleteFolder.vbs\" \"%1\""
