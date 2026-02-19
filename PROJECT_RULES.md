@@ -16,6 +16,27 @@
 - Prefer side-by-side experiments (for example, RoboCopy-based flow) instead of replacing the native path directly.
 
 ## Decision Log
+### 2026-02-19 - Explorer-visible counting for all-items combo detection
+- Problem: In root-drive mixed selections, combo still fell back even when user selected all visible items (files + one folder), causing slow delete and occasional missed folder.
+- Root cause: Combo all-items check used `Get-ChildItem -Force`, which counted hidden/system top-level directories not present in Explorer selection counts.
+- Guardrail: For all-items detection, use Explorer-visible counts only (`Get-ChildItem` without `-Force`) for top-level files/directories.
+- Files affected: `NuclearDeleteFolder.ps1`.
+- Validation/tests: PowerShell parser validation passed for repo + deployed runtime copy; runtime log verification pending.
+
+### 2026-02-19 - Mixed large selection all-items fast path (files + selected top-level dirs)
+- Problem: In mixed large selections (many files + selected folder), combo fallback could both slow down and miss a selected folder in the standard resolver path.
+- Root cause: Combo path only accepted `selected == topLevelFiles`; when all folder items were selected (`selected == folderItems`) and folders existed, it forced slow fallback resolution.
+- Guardrail: Allow Robocopy combo in safe all-items mode (`selected == folderItems == topLevelFiles + topLevelDirs`) and after file combo cleanup, explicitly delete top-level directories via `Invoke-DeleteBatch`.
+- Files affected: `NuclearDeleteFolder.ps1`.
+- Validation/tests: PowerShell parser validation passed for repo + deployed runtime copy; runtime verification pending by user logs.
+
+### 2026-02-19 - Robocopy combo fallback fix for unselected sibling folders
+- Problem: Large file-only deletes became ~2-3x slower when the same directory also contained extra folders, even if those folders were not part of intended delete set.
+- Root cause: Combo path hard-exited on `selected != folderItems` (`NotSelectAllCountMismatch`), forcing slow full resolve/delete fallback.
+- Guardrail: Do not reject combo purely on count mismatch; allow combo when selected count still matches full top-level file count, and add low-cost sample guard to block when sampled selected entries include directories.
+- Files affected: `NuclearDeleteFolder.ps1`.
+- Validation/tests: PowerShell parser validation for `NuclearDeleteFolder.ps1` (local + deployed copy); runtime log verification pending by user.
+
 ### 2026-02-19 - Consolidate runtime state under NuclearDeleteContext
 - Problem: Runtime created a second appdata folder (`%LOCALAPPDATA%\NuclearDelete`) while installer/runtime files live under `%LOCALAPPDATA%\NuclearDeleteContext`.
 - Root cause: `NuclearDeleteFolder.ps1`, `DeleteTune.ps1`, and `NuclearDeleteFolder.vbs` used `NuclearDelete` as `stateRoot`.

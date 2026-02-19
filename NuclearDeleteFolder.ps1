@@ -273,7 +273,7 @@ function Get-ExplorerSelectionContext {
         $firstPath = $firstPath.Trim()
 
         $samplePaths = New-Object System.Collections.Generic.List[string]
-        $sampleCount = [Math]::Min(8, $itemCount)
+        $sampleCount = [Math]::Min(24, $itemCount)
         for ($sampleIndex = 0; $sampleIndex -lt $sampleCount; $sampleIndex++) {
             try {
                 $samplePath = [string]$items.Item($sampleIndex).Path
@@ -547,17 +547,52 @@ function Try-RobocopyBulkScoopAndNuke {
         $countCheckStageMs = $comboTimer.ElapsedMilliseconds - $stageStartMs
 
         if ($folderItemCount -gt 0 -and $itemCount -ne $folderItemCount) {
-            Write-DebugLog ("Robocopy combo skipped: count-mismatch selected={0} folderItems={1} count_check_ms={2}" -f $itemCount, $folderItemCount, $countCheckStageMs)
-            return (New-BulkResult -Used:$false -Success:$false -DropZone $null -Reason "NotSelectAllCountMismatch")
+            Write-DebugLog ("Robocopy combo trust-mode count-mismatch selected={0} folderItems={1} count_check_ms={2}" -f $itemCount, $folderItemCount, $countCheckStageMs)
         }
         Write-DebugLog ("Robocopy combo trust-mode selected={0} folderItems={1} count_check_ms={2}" -f $itemCount, $folderItemCount, $countCheckStageMs)
 
+        $sampleDirectoryHits = 0
+        foreach ($samplePath in $samplePaths) {
+            if ([string]::IsNullOrWhiteSpace($samplePath)) { continue }
+            try {
+                if (Test-Path -LiteralPath $samplePath -PathType Container) {
+                    $sampleDirectoryHits++
+                }
+            }
+            catch { }
+        }
+
+        # Use Explorer-visible top-level counts (no -Force) so hidden/system entries
+        # do not break all-items detection in root drives.
         $topLevelFileCount = @(
-            Get-ChildItem -LiteralPath $sourceDirectory -File -Force -ErrorAction SilentlyContinue
+            Get-ChildItem -LiteralPath $sourceDirectory -File -ErrorAction SilentlyContinue
         ).Count
-        if ($topLevelFileCount -le 0 -or $itemCount -ne $topLevelFileCount) {
-            Write-DebugLog ("Robocopy combo blocked: not full top-level file selection selected={0} topLevelFiles={1}" -f $itemCount, $topLevelFileCount)
+        $topLevelDirectoryPaths = @(
+            Get-ChildItem -LiteralPath $sourceDirectory -Directory -ErrorAction SilentlyContinue |
+            ForEach-Object { $_.FullName }
+        )
+        $topLevelDirectoryCount = @($topLevelDirectoryPaths).Count
+        $totalTopLevelEntries = $topLevelFileCount + $topLevelDirectoryCount
+
+        $fileOnlyFullSelection = ($topLevelFileCount -gt 0 -and $itemCount -eq $topLevelFileCount)
+        $allItemsSelected = (
+            $topLevelFileCount -gt 0 -and
+            $folderItemCount -gt 0 -and
+            $itemCount -eq $folderItemCount -and
+            $folderItemCount -eq $totalTopLevelEntries
+        )
+
+        if ($sampleDirectoryHits -gt 0 -and -not $allItemsSelected) {
+            Write-DebugLog ("Robocopy combo blocked: sample contains directories sampleDirectoryHits={0} totalSamples={1}" -f $sampleDirectoryHits, $samplePaths.Count)
+            return (New-BulkResult -Used:$false -Success:$false -DropZone $null -Reason "SampleContainsDirectorySelection")
+        }
+
+        if (-not $fileOnlyFullSelection -and -not $allItemsSelected) {
+            Write-DebugLog ("Robocopy combo blocked: not full top-level file selection selected={0} topLevelFiles={1} topLevelDirs={2} folderItems={3}" -f $itemCount, $topLevelFileCount, $topLevelDirectoryCount, $folderItemCount)
             return (New-BulkResult -Used:$false -Success:$false -DropZone $null -Reason "NotFullTopLevelFileSelection")
+        }
+        if ($allItemsSelected -and $topLevelDirectoryCount -gt 0) {
+            Write-DebugLog ("Robocopy combo all-items mode enabled selected={0} topLevelFiles={1} topLevelDirs={2}" -f $itemCount, $topLevelFileCount, $topLevelDirectoryCount)
         }
 
         $dropRoot = [System.IO.Path]::GetPathRoot($firstPath)
@@ -630,6 +665,17 @@ function Try-RobocopyBulkScoopAndNuke {
             return (New-BulkResult -Used:$true -Success:$false -DropZone $dropZone -Reason ("DropZoneDeleteFailed_{0}" -f $cleanupExit))
         }
         $dropZone = $null
+
+        if ($allItemsSelected -and $topLevelDirectoryCount -gt 0) {
+            Write-DebugLog ("Robocopy combo all-items directory cleanup start count={0}" -f $topLevelDirectoryCount)
+            $dirCleanupExit = Invoke-DeleteBatch -Targets ([string[]]$topLevelDirectoryPaths)
+            if ($dirCleanupExit -ne 0) {
+                Write-DebugLog ("Robocopy combo all-items directory cleanup failed exitCode={0}" -f $dirCleanupExit)
+                Write-DebugLog ("Robocopy combo timing totalMs={0} selection_validate_ms={1} transfer_ms={2} root_cleanup_ms={3} dropzone_delete_ms={4} sample_verify_ms={5}" -f $comboTimer.ElapsedMilliseconds, $selectionStageMs, $transferStageMs, $rootCleanupStageMs, $dropzoneDeleteStageMs, $sampleVerifyStageMs)
+                return (New-BulkResult -Used:$true -Success:$false -DropZone $null -Reason ("DirectoryCleanupFailed_{0}" -f $dirCleanupExit))
+            }
+            Write-DebugLog ("Robocopy combo all-items directory cleanup ok count={0}" -f $topLevelDirectoryCount)
+        }
 
         $remainingTopLevelFiles = @(
             Get-ChildItem -LiteralPath $sourceDirectory -File -Force -ErrorAction SilentlyContinue |
