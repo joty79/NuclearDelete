@@ -32,7 +32,7 @@ This is the exact class of issue already seen in `MoveTo.exe` debugging.
 `main` branch uses a "single active worker + selection re-read" pattern:
 
 1. Explorer calls `NuclearDeleteFolder.vbs` (often many times, one per item).
-2. VBS creates a lock file (`worker.lock`) in `%LOCALAPPDATA%\NuclearDelete`.
+2. VBS creates a lock file (`worker.lock`) in `%LOCALAPPDATA%\NuclearDeleteContext`.
    - only one VBS call acquires it and launches PowerShell
    - others exit immediately
 3. `NuclearDeleteFolder.ps1` starts and also uses a named mutex:
@@ -108,12 +108,12 @@ Check:
 
 - context-menu command points to installed `NuclearDeleteFolder.vbs` under `%LOCALAPPDATA%\NuclearDeleteContext`
 - installed `NuclearDeleteFolder.vbs` points to installed `NuclearDeleteFolder.ps1`
-- `%LOCALAPPDATA%\NuclearDelete\worker.lock` is not stale
+- `%LOCALAPPDATA%\NuclearDeleteContext\worker.lock` is not stale
 
 If needed, remove stale lock:
 
 ```powershell
-Remove-Item "$env:LOCALAPPDATA\NuclearDelete\worker.lock" -ErrorAction SilentlyContinue
+Remove-Item "$env:LOCALAPPDATA\NuclearDeleteContext\worker.lock" -ErrorAction SilentlyContinue
 ```
 
 ## DeleteTune (Runtime Tweaks)
@@ -123,7 +123,7 @@ Remove-Item "$env:LOCALAPPDATA\NuclearDelete\worker.lock" -ErrorAction SilentlyC
 Config file:
 
 ```powershell
-$env:LOCALAPPDATA\NuclearDelete\DeleteTune.json
+$env:LOCALAPPDATA\NuclearDeleteContext\DeleteTune.json
 ```
 
 Run:
@@ -133,7 +133,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "D:\Users\joty79\scripts\NuclearDe
 ```
 
 Main options:
-- `debug_mode`: enables debug log at `%LOCALAPPDATA%\NuclearDelete\NuclearDelete.debug.log`
+- `debug_mode`: enables debug log at `%LOCALAPPDATA%\NuclearDeleteContext\NuclearDelete.debug.log`
 - `accelerator_enabled`: enables/disables C# accelerator path
 - `accelerator_threshold`: minimum target count before C# accelerator is used
 - `selection_retry_count`

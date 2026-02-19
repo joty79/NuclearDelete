@@ -4,7 +4,7 @@ param(
 )
 
 $mutexName = "Global\MoveTo_NuclearDelete_Operation"
-$stateRoot = Join-Path $env:LOCALAPPDATA "NuclearDelete"
+$stateRoot = Join-Path $env:LOCALAPPDATA "NuclearDeleteContext"
 $configPath = Join-Path $stateRoot "DeleteTune.json"
 $debugLogPath = Join-Path $stateRoot "NuclearDelete.debug.log"
 

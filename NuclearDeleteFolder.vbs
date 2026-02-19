@@ -1,16 +1,18 @@
 Option Explicit
 
-Dim shell, fso, scriptPath, stateRoot, legacyStateRoot, lockFile
+Dim shell, fso, scriptPath, stateRoot, legacyStateRoot, legacyStateRoot2, lockFile
 Dim cmd, targetPath, lockAcquired, rc
 Set shell = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
 scriptPath = "D:\Users\joty79\scripts\NuclearDelete\NuclearDeleteFolder.ps1"
-stateRoot = shell.ExpandEnvironmentStrings("%LOCALAPPDATA%") & "\NuclearDelete"
+stateRoot = shell.ExpandEnvironmentStrings("%LOCALAPPDATA%") & "\NuclearDeleteContext"
 legacyStateRoot = shell.ExpandEnvironmentStrings("%LOCALAPPDATA%") & "\MoveTo\NuclearDelete"
+legacyStateRoot2 = shell.ExpandEnvironmentStrings("%LOCALAPPDATA%") & "\NuclearDelete"
 lockFile = stateRoot & "\worker.lock"
 
-Call EnsureStateFolder(shell.ExpandEnvironmentStrings("%LOCALAPPDATA%") & "\NuclearDelete")
+Call EnsureStateFolder(shell.ExpandEnvironmentStrings("%LOCALAPPDATA%") & "\NuclearDeleteContext")
 Call MigrateLegacyStateFolder(legacyStateRoot, stateRoot)
+Call MigrateLegacyStateFolder(legacyStateRoot2, stateRoot)
 Call EnsureStateFolder(stateRoot)
 Call CleanupStaleLock(lockFile, 5)
 

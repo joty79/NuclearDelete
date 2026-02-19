@@ -16,6 +16,13 @@
 - Prefer side-by-side experiments (for example, RoboCopy-based flow) instead of replacing the native path directly.
 
 ## Decision Log
+### 2026-02-19 - Consolidate runtime state under NuclearDeleteContext
+- Problem: Runtime created a second appdata folder (`%LOCALAPPDATA%\NuclearDelete`) while installer/runtime files live under `%LOCALAPPDATA%\NuclearDeleteContext`.
+- Root cause: `NuclearDeleteFolder.ps1`, `DeleteTune.ps1`, and `NuclearDeleteFolder.vbs` used `NuclearDelete` as `stateRoot`.
+- Guardrail: Use `%LOCALAPPDATA%\NuclearDeleteContext` as the single runtime state namespace (config, debug log, worker lock).
+- Files affected: `NuclearDeleteFolder.ps1`, `DeleteTune.ps1`, `NuclearDeleteFolder.vbs`, `README.md`.
+- Validation/tests: PowerShell parser validation (`NuclearDeleteFolder.ps1`, `DeleteTune.ps1`) and VBS syntax check.
+
 ### 2026-02-19 - Installer parity with RoboCopy (Install/Update split + branch picker)
 - Problem: Nuclear installer had no separate Install/Update flow and no branch picker.
 - Root cause: Earlier minimal installer skipped GitHub package-source workflow.

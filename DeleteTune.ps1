@@ -5,7 +5,7 @@ param(
 [Console]::InputEncoding = [Text.UTF8Encoding]::UTF8
 [Console]::OutputEncoding = [Text.UTF8Encoding]::UTF8
 
-$stateRoot = Join-Path $env:LOCALAPPDATA "NuclearDelete"
+$stateRoot = Join-Path $env:LOCALAPPDATA "NuclearDeleteContext"
 $configPath = Join-Path $stateRoot "DeleteTune.json"
 $repoDefaultPath = Join-Path $PSScriptRoot "DeleteTune.json"
 
