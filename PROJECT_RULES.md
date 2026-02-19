@@ -16,6 +16,13 @@
 - Prefer side-by-side experiments (for example, RoboCopy-based flow) instead of replacing the native path directly.
 
 ## Decision Log
+### 2026-02-19 - High-throughput selection+delete runtime (latest test branch)
+- Problem: Runtime stayed around ~9s for ~9000 files after delete-loop-only tuning.
+- Root cause: Main bottleneck shifted to selection resolution overhead (COM reads/retries), not just delete syscall path.
+- Guardrail: On `latest`, adopt the faster runtime variant (`NuclearDeleteFolder_2` logic) with race-safe delete behavior and keep fallback for locked/ACL cases.
+- Files affected: `NuclearDeleteFolder.ps1`.
+- Validation/tests: Parser check passed; user runtime test ~5-6s for ~9000 files.
+
 ### 2026-02-19 - .NET delete fast path with safe fallback
 - Problem: `Remove-Item` per-target adds significant overhead on large multi-select deletes.
 - Root cause: Cmdlet/pipeline/provider overhead for each item.

@@ -6,196 +6,172 @@ param(
 $mutexName = "Global\MoveTo_NuclearDelete_Operation"
 $selectionRetryCount = 10
 $selectionRetryDelayMs = 45
-$selectionStableHits = 2
-$largeSelectionTrustThreshold = 1000
-
-function Normalize-Targets {
-    param([string[]]$InputPaths)
-    @(
-        $InputPaths |
-        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
-        ForEach-Object { $_.Trim() } |
-        Select-Object -Unique
-    )
-}
+# If selection is huge, we trust it faster to avoid UI lag
+$largeSelectionTrustThreshold = 1000 
 
 function Get-ExplorerSelection {
     param([string]$AnySelectedPath)
 
     $parentPath = Split-Path -Path $AnySelectedPath -Parent
-    if ([string]::IsNullOrWhiteSpace($parentPath)) {
-        return @()
-    }
-    $anchorPath = if ([string]::IsNullOrWhiteSpace($AnySelectedPath)) { "" } else { $AnySelectedPath.Trim() }
+    if ([string]::IsNullOrWhiteSpace($parentPath)) { return @() }
+    
+    # Pre-trim anchor for comparison
+    $anchorPath = if (-not [string]::IsNullOrEmpty($AnySelectedPath)) { $AnySelectedPath.Trim() } else { "" }
 
-    $bestTargets = New-Object System.Collections.Generic.List[string]
     $shell = $null
     try {
         $shell = New-Object -ComObject Shell.Application
         $windows = $shell.Windows()
-        for ($i = 0; $i -lt $windows.Count; $i++) {
+        
+        # Optimization: Use foreach instead of indexed for-loop to reduce COM overhead
+        foreach ($win in $windows) {
             try {
-                $win = $windows.Item($i)
                 if ($null -eq $win -or $null -eq $win.Document) { continue }
-
+                
                 $folder = $win.Document.Folder
                 if ($null -eq $folder -or $null -eq $folder.Self) { continue }
 
-                $windowPath = [string]$folder.Self.Path
-                if (-not [string]::Equals($windowPath, $parentPath, [StringComparison]::OrdinalIgnoreCase)) {
+                # Fast string comparison
+                if (-not [string]::Equals($folder.Self.Path, $parentPath, [StringComparison]::OrdinalIgnoreCase)) {
                     continue
                 }
 
                 $items = $win.Document.SelectedItems()
-                if ($null -eq $items) { continue }
-                if ($items.Count -le 0) { continue }
+                if ($null -eq $items -or $items.Count -eq 0) { continue }
 
-                $windowTargets = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+                # Use a specific list type for speed
+                $results = New-Object System.Collections.Generic.List[string]($items.Count)
                 $anchorHit = $false
 
-                for ($j = 0; $j -lt $items.Count; $j++) {
-                    try {
-                        $itemPath = [string]$items.Item($j).Path
-                        if (-not [string]::IsNullOrWhiteSpace($itemPath)) {
-                            $itemPath = $itemPath.Trim()
-                            [void]$windowTargets.Add($itemPath)
-                            if (-not [string]::IsNullOrWhiteSpace($anchorPath) -and
-                                [string]::Equals($itemPath, $anchorPath, [StringComparison]::OrdinalIgnoreCase)) {
-                                $anchorHit = $true
-                            }
+                # CRITICAL PERFORMANCE SECTION
+                # We iterate COM items as fast as possible
+                foreach ($item in $items) {
+                    $p = [string]$item.Path
+                    if (-not [string]::IsNullOrEmpty($p)) {
+                        $p = $p.Trim()
+                        $results.Add($p)
+                        
+                        # Check anchor hit inside the loop to avoid second pass
+                        if (-not $anchorHit -and [string]::Equals($p, $anchorPath, [StringComparison]::OrdinalIgnoreCase)) {
+                            $anchorHit = $true
                         }
-                    } catch { }
-                }
-
-                if ($windowTargets.Count -eq 0) { continue }
-
-                $candidate = [string[]]@($windowTargets)
-                if ($anchorHit) {
-                    return $candidate
-                }
-                if ($candidate.Count -gt $bestTargets.Count) {
-                    $bestTargets.Clear()
-                    foreach ($candidatePath in $candidate) {
-                        [void]$bestTargets.Add($candidatePath)
                     }
+                }
+
+                # If this window contains the file we right-clicked, it's the winner.
+                if ($anchorHit) {
+                    return $results
                 }
             } catch { }
         }
     } catch { }
     finally {
         if ($null -ne $shell) {
-            try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($shell) } catch { }
+            try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($shell) | Out-Null } catch { }
         }
     }
-
-    return [string[]]@($bestTargets)
+    return @()
 }
 
 function Resolve-Targets {
     param([string]$AnySelectedPath)
 
     $bestTargets = @()
-    $lastSignature = $null
+    $lastCount = -1
     $stableHits = 0
 
     for ($attempt = 0; $attempt -lt $selectionRetryCount; $attempt++) {
-        $targets = Normalize-Targets -InputPaths (Get-ExplorerSelection -AnySelectedPath $AnySelectedPath)
-        if ($targets.Count -gt 0) {
-            if ($targets.Count -gt $bestTargets.Count) {
-                $bestTargets = @($targets)
+        $rawTargets = Get-ExplorerSelection -AnySelectedPath $AnySelectedPath
+        $count = $rawTargets.Count
+
+        if ($count -gt 0) {
+            # Always keep the largest set found
+            if ($count -gt $bestTargets.Count) {
+                $bestTargets = $rawTargets
             }
 
-            if ($targets.Count -ge $largeSelectionTrustThreshold) {
-                return $targets
+            # PERF: If we found > 1000 items, trust it immediately. 
+            # Waiting for 9000 items to "stabilize" via repeated COM calls is too slow.
+            if ($count -ge $largeSelectionTrustThreshold) {
+                return $bestTargets
             }
 
-            if ($targets.Count -eq 1 -and
-                [string]::Equals($targets[0], $AnySelectedPath, [StringComparison]::OrdinalIgnoreCase)) {
-                return $targets
-            }
-
-            $signature = "{0}|{1}|{2}" -f $targets.Count, $targets[0], $targets[$targets.Count - 1]
-            if ($signature -eq $lastSignature) {
+            # Fast stability check (Count only, signature is too slow for 9000 items)
+            if ($count -eq $lastCount) {
                 $stableHits++
-            }
-            else {
+            } else {
                 $stableHits = 1
-                $lastSignature = $signature
+                $lastCount = $count
             }
 
-            if ($stableHits -ge $selectionStableHits) {
-                return $targets
+            if ($stableHits -ge 2) {
+                return $bestTargets
             }
         }
 
-        if ($attempt -lt ($selectionRetryCount - 1)) {
-            Start-Sleep -Milliseconds $selectionRetryDelayMs
-        }
+        Start-Sleep -Milliseconds $selectionRetryDelayMs
     }
 
     if ($bestTargets.Count -gt 0) {
-        return @($bestTargets)
+        return $bestTargets
     }
 
-    # Fallback when Explorer selection cannot be read.
-    return (Normalize-Targets -InputPaths @($AnySelectedPath))
-}
-
-function Clear-ForceAttributes {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$Path
-    )
-
-    $attrs = [System.IO.File]::GetAttributes($Path)
-    $clearMask = [System.IO.FileAttributes]::ReadOnly `
-        -bor [System.IO.FileAttributes]::Hidden `
-        -bor [System.IO.FileAttributes]::System
-
-    if (($attrs -band $clearMask) -ne 0) {
-        $newAttrs = $attrs -band (-bnot $clearMask)
-        [System.IO.File]::SetAttributes($Path, $newAttrs)
-        $attrs = $newAttrs
-    }
-
-    return $attrs
+    # Fallback
+    return @($AnySelectedPath)
 }
 
 function Invoke-DeleteBatch {
-    param([string[]]$Targets)
+    param([System.Collections.Generic.List[string]]$Targets)
 
-    if ($Targets.Count -eq 0) {
-        return 1
-    }
+    if ($null -eq $Targets -or $Targets.Count -eq 0) { return 1 }
 
     $hadError = $false
 
-    foreach ($targetPath in $Targets) {
-        $isFile = [System.IO.File]::Exists($targetPath)
-        $isDir = [System.IO.Directory]::Exists($targetPath)
+    # Cache attributes for bitwise operations
+    $attrReadOnly = [System.IO.FileAttributes]::ReadOnly
+    $attrHidden   = [System.IO.FileAttributes]::Hidden
+    $attrSystem   = [System.IO.FileAttributes]::System
+    $attrDir      = [System.IO.FileAttributes]::Directory
+    $maskForce    = $attrReadOnly -bor $attrHidden -bor $attrSystem
+    $maskInvert   = -bnot $maskForce
 
-        if (-not $isFile -and -not $isDir) {
+    foreach ($path in $Targets) {
+        if ([string]::IsNullOrWhiteSpace($path)) {
             continue
         }
 
         try {
-            $attrs = Clear-ForceAttributes -Path $targetPath
-            $isDirectoryAttr = (($attrs -band [System.IO.FileAttributes]::Directory) -ne 0)
-
-            if ($isDir -or $isDirectoryAttr) {
-                [System.IO.Directory]::Delete($targetPath, $true)
+            # OPTIMIZATION: GetAttributes is the single source of truth.
+            # It tells us 1) Does it exist? 2) Is it a Dir? 3) Is it ReadOnly?
+            # This saves 2 syscalls per file compared to Test-Path + Get-Item.
+            $attr = [System.IO.File]::GetAttributes($path)
+            
+            # 1. Strip ReadOnly/Hidden/System if present (Bitwise check is extremely fast)
+            if (($attr -band $maskForce) -ne 0) {
+                $attr = $attr -band $maskInvert
+                [System.IO.File]::SetAttributes($path, $attr)
             }
-            else {
-                [System.IO.File]::Delete($targetPath)
+
+            # 2. Delete based on Directory flag
+            if (($attr -band $attrDir) -eq $attrDir) {
+                [System.IO.Directory]::Delete($path, $true)
+            } else {
+                [System.IO.File]::Delete($path)
             }
         }
         catch {
+            # Catch 'FileNotFound' specifically to ignore it (race condition during multiselect)
+            if ($_.Exception -is [System.IO.FileNotFoundException] -or 
+                $_.Exception -is [System.IO.DirectoryNotFoundException]) {
+                continue
+            }
+
+            # Hard fallback for locked files/ACL issues
             try {
-                if (Test-Path -LiteralPath $targetPath -PathType Container) {
-                    Remove-Item -LiteralPath $targetPath -Recurse -Force -ErrorAction Stop
-                }
-                else {
-                    Remove-Item -LiteralPath $targetPath -Force -ErrorAction Stop
+                if (Test-Path -LiteralPath $path -PathType Container) {
+                    Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop
+                } elseif (Test-Path -LiteralPath $path -PathType Leaf) {
+                    Remove-Item -LiteralPath $path -Force -ErrorAction Stop
                 }
             }
             catch {
@@ -216,6 +192,7 @@ if (-not $createdNew) {
 }
 
 try {
+    # Resolve targets returns a generic List, avoiding array copy overhead
     $targets = Resolve-Targets -AnySelectedPath $AnchorPath
     exit (Invoke-DeleteBatch -Targets $targets)
 }
