@@ -16,6 +16,13 @@
 - Prefer side-by-side experiments (for example, RoboCopy-based flow) instead of replacing the native path directly.
 
 ## Decision Log
+### 2026-02-19 - DeleteTune + conditional C# accelerator (safe hybrid)
+- Problem: Needed faster large-batch delete path plus runtime tuning controls (debug/threshold/retry) without editing core script every time.
+- Root cause: Previous PowerShell-only parallel attempts were unstable; no dedicated tune surface existed.
+- Guardrail: Keep resolver/mutex/fallback semantics intact; use optional C# accelerator only when enabled and target count passes threshold; keep PowerShell baseline + robust `Remove-Item` fallback.
+- Files affected: `NuclearDeleteFolder.ps1`, `DeleteTune.ps1`, `DeleteTune.json`, `README.md`.
+- Validation/tests: PowerShell parser validation passed for `NuclearDeleteFolder.ps1` and `DeleteTune.ps1`; `DeleteTune.ps1 -ShowPathOnly` returned appdata config path; runtime smoke delete blocked by execution policy wrapper in this environment.
+
 ### 2026-02-19 - High-throughput selection+delete runtime (latest test branch)
 - Problem: Runtime stayed around ~9s for ~9000 files after delete-loop-only tuning.
 - Root cause: Main bottleneck shifted to selection resolution overhead (COM reads/retries), not just delete syscall path.

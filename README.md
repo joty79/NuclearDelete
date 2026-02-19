@@ -32,7 +32,7 @@ This is the exact class of issue already seen in `MoveTo.exe` debugging.
 `main` branch uses a "single active worker + selection re-read" pattern:
 
 1. Explorer calls `NuclearDeleteFolder.vbs` (often many times, one per item).
-2. VBS creates a lock file (`worker.lock`) in `%LOCALAPPDATA%\MoveTo\NuclearDelete`.
+2. VBS creates a lock file (`worker.lock`) in `%LOCALAPPDATA%\NuclearDelete`.
    - only one VBS call acquires it and launches PowerShell
    - others exit immediately
 3. `NuclearDeleteFolder.ps1` starts and also uses a named mutex:
@@ -110,8 +110,32 @@ Check:
 If needed, remove stale lock:
 
 ```powershell
-Remove-Item "$env:LOCALAPPDATA\MoveTo\NuclearDelete\worker.lock" -ErrorAction SilentlyContinue
+Remove-Item "$env:LOCALAPPDATA\NuclearDelete\worker.lock" -ErrorAction SilentlyContinue
 ```
+
+## DeleteTune (Runtime Tweaks)
+
+`DeleteTune.ps1` controls runtime flags without editing `NuclearDeleteFolder.ps1` directly.
+
+Config file:
+
+```powershell
+$env:LOCALAPPDATA\NuclearDelete\DeleteTune.json
+```
+
+Run:
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File "D:\Users\joty79\scripts\NuclearDelete\DeleteTune.ps1"
+```
+
+Main options:
+- `debug_mode`: enables debug log at `%LOCALAPPDATA%\NuclearDelete\NuclearDelete.debug.log`
+- `accelerator_enabled`: enables/disables C# accelerator path
+- `accelerator_threshold`: minimum target count before C# accelerator is used
+- `selection_retry_count`
+- `selection_retry_delay_ms`
+- `large_selection_trust_threshold`
 
 ### "Only one file deletes in large selection"
 

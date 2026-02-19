@@ -1,0 +1,35 @@
+NuclearDelete - DeleteTune + C# Hybrid (quick snippet)
+Date: 2026-02-19
+
+What was added:
+- DeleteTune config file:
+  - %LOCALAPPDATA%\NuclearDelete\DeleteTune.json
+- DeleteTune menu script:
+  - D:\Users\joty79\scripts\NuclearDelete\DeleteTune.ps1
+- Runtime integration in NuclearDeleteFolder.ps1:
+  - reads DeleteTune.json at startup
+  - keeps existing selection/mutex/fallback behavior
+  - optional C# accelerator for large batches
+
+Main knobs:
+- debug_mode (bool)
+- accelerator_enabled (bool)
+- accelerator_threshold (int, default 2000)
+- selection_retry_count (int, default 10)
+- selection_retry_delay_ms (int, default 45)
+- large_selection_trust_threshold (int, default 1000)
+
+Execution path:
+1) Resolve selection (same stable logic).
+2) If accelerator_enabled=true and target_count>=accelerator_threshold:
+   - compile/use NuclearAccelerator C# class
+   - parallel file delete, serial directory delete
+   - return failed items
+3) Otherwise:
+   - use fast PowerShell baseline delete loop
+4) Final cleanup:
+   - retry failed items with Remove-Item -Force
+   - preserve exit codes 0/1/2
+
+Debug log (only when debug_mode=true):
+- %LOCALAPPDATA%\NuclearDelete\NuclearDelete.debug.log

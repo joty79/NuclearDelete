@@ -4,34 +4,172 @@ param(
 )
 
 $mutexName = "Global\MoveTo_NuclearDelete_Operation"
-$selectionRetryCount = 10
-$selectionRetryDelayMs = 45
-# If selection is huge, we trust it faster to avoid UI lag
-$largeSelectionTrustThreshold = 1000 
+$stateRoot = Join-Path $env:LOCALAPPDATA "NuclearDelete"
+$configPath = Join-Path $stateRoot "DeleteTune.json"
+$debugLogPath = Join-Path $stateRoot "NuclearDelete.debug.log"
+
+$defaultTune = [ordered]@{
+    debug_mode                       = $false
+    accelerator_enabled              = $true
+    accelerator_threshold            = 2000
+    selection_retry_count            = 10
+    selection_retry_delay_ms         = 45
+    large_selection_trust_threshold  = 1000
+}
+
+function Get-PropertyValue {
+    param(
+        [Parameter(Mandatory = $false)]
+        $Object,
+        [Parameter(Mandatory = $true)]
+        [string]$Name
+    )
+
+    if ($null -eq $Object) { return $null }
+    $prop = $Object.PSObject.Properties[$Name]
+    if ($null -eq $prop) { return $null }
+    return $prop.Value
+}
+
+function Get-BoolSetting {
+    param(
+        [Parameter(Mandatory = $false)]
+        $Value,
+        [Parameter(Mandatory = $true)]
+        [bool]$Default
+    )
+
+    if ($null -eq $Value) { return $Default }
+    if ($Value -is [bool]) { return [bool]$Value }
+
+    if ($Value -is [string]) {
+        $normalized = $Value.Trim().ToLowerInvariant()
+        if ($normalized -in @("1", "true", "yes", "on")) { return $true }
+        if ($normalized -in @("0", "false", "no", "off")) { return $false }
+    }
+
+    return $Default
+}
+
+function Get-IntSetting {
+    param(
+        [Parameter(Mandatory = $false)]
+        $Value,
+        [Parameter(Mandatory = $true)]
+        [int]$Default,
+        [Parameter(Mandatory = $true)]
+        [int]$Min,
+        [Parameter(Mandatory = $true)]
+        [int]$Max
+    )
+
+    $parsed = $Default
+    try {
+        if ($null -ne $Value) {
+            $parsed = [int]$Value
+        }
+    }
+    catch {
+        $parsed = $Default
+    }
+
+    if ($parsed -lt $Min) { $parsed = $Min }
+    if ($parsed -gt $Max) { $parsed = $Max }
+    return $parsed
+}
+
+function Save-TuneConfig {
+    param([hashtable]$Config)
+
+    try {
+        $Config | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $configPath -Encoding UTF8
+    }
+    catch { }
+}
+
+function Ensure-TuneConfig {
+    if (-not (Test-Path -LiteralPath $stateRoot -PathType Container)) {
+        New-Item -ItemType Directory -Path $stateRoot -Force | Out-Null
+    }
+
+    if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
+        $repoTunePath = Join-Path $PSScriptRoot "DeleteTune.json"
+        if (Test-Path -LiteralPath $repoTunePath -PathType Leaf) {
+            try {
+                Copy-Item -LiteralPath $repoTunePath -Destination $configPath -Force
+            }
+            catch {
+                Save-TuneConfig -Config $defaultTune
+            }
+        }
+        else {
+            Save-TuneConfig -Config $defaultTune
+        }
+    }
+
+    $rawConfig = $null
+    try {
+        $rawConfig = Get-Content -LiteralPath $configPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+    }
+    catch {
+        $rawConfig = $null
+    }
+
+    $resolved = [ordered]@{}
+    $resolved.debug_mode = Get-BoolSetting (Get-PropertyValue -Object $rawConfig -Name "debug_mode") $defaultTune.debug_mode
+    $resolved.accelerator_enabled = Get-BoolSetting (Get-PropertyValue -Object $rawConfig -Name "accelerator_enabled") $defaultTune.accelerator_enabled
+    $resolved.accelerator_threshold = Get-IntSetting (Get-PropertyValue -Object $rawConfig -Name "accelerator_threshold") $defaultTune.accelerator_threshold 100 500000
+    $resolved.selection_retry_count = Get-IntSetting (Get-PropertyValue -Object $rawConfig -Name "selection_retry_count") $defaultTune.selection_retry_count 1 50
+    $resolved.selection_retry_delay_ms = Get-IntSetting (Get-PropertyValue -Object $rawConfig -Name "selection_retry_delay_ms") $defaultTune.selection_retry_delay_ms 0 1000
+    $resolved.large_selection_trust_threshold = Get-IntSetting (Get-PropertyValue -Object $rawConfig -Name "large_selection_trust_threshold") $defaultTune.large_selection_trust_threshold 1 500000
+
+    if ($null -eq $rawConfig) {
+        Save-TuneConfig -Config $resolved
+    }
+    return $resolved
+}
+
+$tuneConfig = Ensure-TuneConfig
+
+$script:debugMode = $tuneConfig.debug_mode
+$script:acceleratorEnabled = $tuneConfig.accelerator_enabled
+$script:acceleratorThreshold = $tuneConfig.accelerator_threshold
+$selectionRetryCount = $tuneConfig.selection_retry_count
+$selectionRetryDelayMs = $tuneConfig.selection_retry_delay_ms
+$largeSelectionTrustThreshold = $tuneConfig.large_selection_trust_threshold
+
+function Write-DebugLog {
+    param([string]$Message)
+
+    if (-not $script:debugMode) { return }
+
+    try {
+        $stamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss.fff")
+        Add-Content -LiteralPath $debugLogPath -Value "$stamp $Message" -Encoding UTF8
+    }
+    catch { }
+}
 
 function Get-ExplorerSelection {
     param([string]$AnySelectedPath)
 
     $parentPath = Split-Path -Path $AnySelectedPath -Parent
     if ([string]::IsNullOrWhiteSpace($parentPath)) { return @() }
-    
-    # Pre-trim anchor for comparison
+
     $anchorPath = if (-not [string]::IsNullOrEmpty($AnySelectedPath)) { $AnySelectedPath.Trim() } else { "" }
 
     $shell = $null
     try {
         $shell = New-Object -ComObject Shell.Application
         $windows = $shell.Windows()
-        
-        # Optimization: Use foreach instead of indexed for-loop to reduce COM overhead
+
         foreach ($win in $windows) {
             try {
                 if ($null -eq $win -or $null -eq $win.Document) { continue }
-                
+
                 $folder = $win.Document.Folder
                 if ($null -eq $folder -or $null -eq $folder.Self) { continue }
 
-                # Fast string comparison
                 if (-not [string]::Equals($folder.Self.Path, $parentPath, [StringComparison]::OrdinalIgnoreCase)) {
                     continue
                 }
@@ -39,37 +177,35 @@ function Get-ExplorerSelection {
                 $items = $win.Document.SelectedItems()
                 if ($null -eq $items -or $items.Count -eq 0) { continue }
 
-                # Use a specific list type for speed
                 $results = New-Object System.Collections.Generic.List[string]($items.Count)
                 $anchorHit = $false
 
-                # CRITICAL PERFORMANCE SECTION
-                # We iterate COM items as fast as possible
                 foreach ($item in $items) {
                     $p = [string]$item.Path
                     if (-not [string]::IsNullOrEmpty($p)) {
                         $p = $p.Trim()
                         $results.Add($p)
-                        
-                        # Check anchor hit inside the loop to avoid second pass
+
                         if (-not $anchorHit -and [string]::Equals($p, $anchorPath, [StringComparison]::OrdinalIgnoreCase)) {
                             $anchorHit = $true
                         }
                     }
                 }
 
-                # If this window contains the file we right-clicked, it's the winner.
                 if ($anchorHit) {
                     return $results
                 }
-            } catch { }
+            }
+            catch { }
         }
-    } catch { }
+    }
+    catch { }
     finally {
         if ($null -ne $shell) {
             try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($shell) | Out-Null } catch { }
         }
     }
+
     return @()
 }
 
@@ -85,21 +221,18 @@ function Resolve-Targets {
         $count = $rawTargets.Count
 
         if ($count -gt 0) {
-            # Always keep the largest set found
             if ($count -gt $bestTargets.Count) {
                 $bestTargets = $rawTargets
             }
 
-            # PERF: If we found > 1000 items, trust it immediately. 
-            # Waiting for 9000 items to "stabilize" via repeated COM calls is too slow.
             if ($count -ge $largeSelectionTrustThreshold) {
                 return $bestTargets
             }
 
-            # Fast stability check (Count only, signature is too slow for 9000 items)
             if ($count -eq $lastCount) {
                 $stableHits++
-            } else {
+            }
+            else {
                 $stableHits = 1
                 $lastCount = $count
             }
@@ -116,71 +249,191 @@ function Resolve-Targets {
         return $bestTargets
     }
 
-    # Fallback
     return @($AnySelectedPath)
 }
 
+function Convert-ToUniqueStringArray {
+    param([string[]]$InputPaths)
+
+    $set = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($p in $InputPaths) {
+        if (-not [string]::IsNullOrWhiteSpace($p)) {
+            [void]$set.Add($p.Trim())
+        }
+    }
+
+    return [string[]]$set
+}
+
+function Get-NuclearAcceleratorSource {
+@"
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.IO;
+using System.Threading.Tasks;
+
+public static class NuclearAccelerator {
+    public static string[] Nuke(string[] paths) {
+        var failed = new ConcurrentBag<string>();
+        var dirs = new ConcurrentBag<string>();
+
+        Parallel.ForEach(paths, path => {
+            if (string.IsNullOrWhiteSpace(path)) return;
+            try {
+                var attr = File.GetAttributes(path);
+                var forceMask = FileAttributes.ReadOnly | FileAttributes.Hidden | FileAttributes.System;
+
+                if ((attr & forceMask) != 0) {
+                    File.SetAttributes(path, attr & ~forceMask);
+                    attr = File.GetAttributes(path);
+                }
+
+                if ((attr & FileAttributes.Directory) == FileAttributes.Directory) {
+                    dirs.Add(path);
+                }
+                else {
+                    File.Delete(path);
+                }
+            }
+            catch (FileNotFoundException) { }
+            catch (DirectoryNotFoundException) { }
+            catch {
+                failed.Add(path);
+            }
+        });
+
+        var seenDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var dir in dirs) {
+            if (string.IsNullOrWhiteSpace(dir)) continue;
+            if (!seenDirs.Add(dir)) continue;
+
+            try {
+                if (!Directory.Exists(dir)) continue;
+
+                var attr = File.GetAttributes(dir);
+                var forceMask = FileAttributes.ReadOnly | FileAttributes.Hidden | FileAttributes.System;
+                if ((attr & forceMask) != 0) {
+                    File.SetAttributes(dir, attr & ~forceMask);
+                }
+
+                Directory.Delete(dir, true);
+            }
+            catch (FileNotFoundException) { }
+            catch (DirectoryNotFoundException) { }
+            catch {
+                failed.Add(dir);
+            }
+        }
+
+        return failed.ToArray();
+    }
+}
+"@
+}
+
 function Invoke-DeleteBatch {
-    param([System.Collections.Generic.List[string]]$Targets)
+    param([string[]]$Targets)
 
     if ($null -eq $Targets -or $Targets.Count -eq 0) { return 1 }
 
-    $hadError = $false
+    $targetsArray = Convert-ToUniqueStringArray -InputPaths $Targets
+    if ($targetsArray.Count -eq 0) { return 1 }
 
-    # Cache attributes for bitwise operations
-    $attrReadOnly = [System.IO.FileAttributes]::ReadOnly
-    $attrHidden   = [System.IO.FileAttributes]::Hidden
-    $attrSystem   = [System.IO.FileAttributes]::System
-    $attrDir      = [System.IO.FileAttributes]::Directory
-    $maskForce    = $attrReadOnly -bor $attrHidden -bor $attrSystem
-    $maskInvert   = -bnot $maskForce
+    $useAccelerator = $false
+    $failedItems = @()
 
-    foreach ($path in $Targets) {
-        if ([string]::IsNullOrWhiteSpace($path)) {
-            continue
+    if ($script:acceleratorEnabled -and $targetsArray.Count -ge $script:acceleratorThreshold) {
+        if ([System.Management.Automation.PSTypeName]"NuclearAccelerator".Type) {
+            $useAccelerator = $true
         }
+        else {
+            try {
+                Add-Type -TypeDefinition (Get-NuclearAcceleratorSource) -Language CSharp -ErrorAction Stop | Out-Null
+                $useAccelerator = $true
+            }
+            catch {
+                $useAccelerator = $false
+                Write-DebugLog "CSharp compile failed: $($_.Exception.Message)"
+            }
+        }
+    }
 
+    if ($useAccelerator) {
         try {
-            # OPTIMIZATION: GetAttributes is the single source of truth.
-            # It tells us 1) Does it exist? 2) Is it a Dir? 3) Is it ReadOnly?
-            # This saves 2 syscalls per file compared to Test-Path + Get-Item.
-            $attr = [System.IO.File]::GetAttributes($path)
-            
-            # 1. Strip ReadOnly/Hidden/System if present (Bitwise check is extremely fast)
-            if (($attr -band $maskForce) -ne 0) {
-                $attr = $attr -band $maskInvert
-                [System.IO.File]::SetAttributes($path, $attr)
-            }
-
-            # 2. Delete based on Directory flag
-            if (($attr -band $attrDir) -eq $attrDir) {
-                [System.IO.Directory]::Delete($path, $true)
-            } else {
-                [System.IO.File]::Delete($path)
-            }
+            Write-DebugLog "Delete path: CSharp accelerator (count=$($targetsArray.Count))"
+            $failedItems = [NuclearAccelerator]::Nuke([string[]]$targetsArray)
         }
         catch {
-            # Catch 'FileNotFound' specifically to ignore it (race condition during multiselect)
-            if ($_.Exception -is [System.IO.FileNotFoundException] -or 
-                $_.Exception -is [System.IO.DirectoryNotFoundException]) {
-                continue
-            }
+            $useAccelerator = $false
+            $failedItems = @()
+            Write-DebugLog "CSharp execution failed: $($_.Exception.Message)"
+        }
+    }
 
-            # Hard fallback for locked files/ACL issues
+    if (-not $useAccelerator) {
+        Write-DebugLog "Delete path: PowerShell baseline (count=$($targetsArray.Count))"
+        $attrReadOnly = [System.IO.FileAttributes]::ReadOnly
+        $attrHidden = [System.IO.FileAttributes]::Hidden
+        $attrSystem = [System.IO.FileAttributes]::System
+        $attrDir = [System.IO.FileAttributes]::Directory
+        $maskForce = $attrReadOnly -bor $attrHidden -bor $attrSystem
+        $maskInvert = -bnot $maskForce
+
+        $localFailed = New-Object System.Collections.Generic.List[string]
+
+        foreach ($path in $targetsArray) {
+            if ([string]::IsNullOrWhiteSpace($path)) { continue }
+
+            try {
+                $attr = [System.IO.File]::GetAttributes($path)
+                if (($attr -band $maskForce) -ne 0) {
+                    $attr = $attr -band $maskInvert
+                    [System.IO.File]::SetAttributes($path, $attr)
+                }
+
+                if (($attr -band $attrDir) -eq $attrDir) {
+                    [System.IO.Directory]::Delete($path, $true)
+                }
+                else {
+                    [System.IO.File]::Delete($path)
+                }
+            }
+            catch {
+                if ($_.Exception -is [System.IO.FileNotFoundException] -or
+                    $_.Exception -is [System.IO.DirectoryNotFoundException]) {
+                    continue
+                }
+                [void]$localFailed.Add($path)
+            }
+        }
+
+        $failedItems = $localFailed.ToArray()
+    }
+
+    if ($null -ne $failedItems -and $failedItems.Count -gt 0) {
+        Write-DebugLog "Fallback cleanup count=$($failedItems.Count)"
+        $hadError = $false
+
+        $uniqueFailed = Convert-ToUniqueStringArray -InputPaths $failedItems
+        foreach ($path in $uniqueFailed) {
             try {
                 if (Test-Path -LiteralPath $path -PathType Container) {
                     Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop
-                } elseif (Test-Path -LiteralPath $path -PathType Leaf) {
+                }
+                elseif (Test-Path -LiteralPath $path -PathType Leaf) {
                     Remove-Item -LiteralPath $path -Force -ErrorAction Stop
                 }
             }
             catch {
                 $hadError = $true
+                Write-DebugLog "Fallback failed for '$path': $($_.Exception.Message)"
             }
         }
+
+        if ($hadError) { return 2 }
     }
 
-    if ($hadError) { return 2 }
     return 0
 }
 
@@ -192,9 +445,12 @@ if (-not $createdNew) {
 }
 
 try {
-    # Resolve targets returns a generic List, avoiding array copy overhead
+    Write-DebugLog "Start anchor='$AnchorPath' threshold=$script:acceleratorThreshold accel=$script:acceleratorEnabled"
     $targets = Resolve-Targets -AnySelectedPath $AnchorPath
-    exit (Invoke-DeleteBatch -Targets $targets)
+    Write-DebugLog "Resolved targets count=$($targets.Count)"
+    $exitCode = Invoke-DeleteBatch -Targets $targets
+    Write-DebugLog "End exitCode=$exitCode"
+    exit $exitCode
 }
 finally {
     try { $mutex.ReleaseMutex() | Out-Null } catch { }
