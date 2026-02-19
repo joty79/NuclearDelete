@@ -13,6 +13,7 @@ function New-DefaultTuneConfig {
     return [ordered]@{
         debug_mode                      = $false
         accelerator_enabled             = $true
+        strategy_move_first             = $false
         accelerator_threshold           = 2000
         selection_retry_count           = 10
         selection_retry_delay_ms        = 45
@@ -118,6 +119,7 @@ function Load-Config {
     $resolved = [ordered]@{}
     $resolved.debug_mode = Get-BoolSetting (Get-PropertyValue -Object $raw -Name "debug_mode") $defaults.debug_mode
     $resolved.accelerator_enabled = Get-BoolSetting (Get-PropertyValue -Object $raw -Name "accelerator_enabled") $defaults.accelerator_enabled
+    $resolved.strategy_move_first = Get-BoolSetting (Get-PropertyValue -Object $raw -Name "strategy_move_first") $defaults.strategy_move_first
     $resolved.accelerator_threshold = Get-IntSetting (Get-PropertyValue -Object $raw -Name "accelerator_threshold") $defaults.accelerator_threshold 100 500000
     $resolved.selection_retry_count = Get-IntSetting (Get-PropertyValue -Object $raw -Name "selection_retry_count") $defaults.selection_retry_count 1 50
     $resolved.selection_retry_delay_ms = Get-IntSetting (Get-PropertyValue -Object $raw -Name "selection_retry_delay_ms") $defaults.selection_retry_delay_ms 0 1000
@@ -268,17 +270,19 @@ function Show-HowToUse {
     Write-Host "   - Writes runtime trace to NuclearDelete.debug.log." -ForegroundColor Gray
     Write-Host "2. Toggle accelerator mode" -ForegroundColor Gray
     Write-Host "   - Enables/disables C# delete accelerator path." -ForegroundColor Gray
-    Write-Host "3. Set accelerator threshold" -ForegroundColor Gray
+    Write-Host "3. Toggle move-first strategy" -ForegroundColor Gray
+    Write-Host "   - Uses scoop-and-nuke (move then delete dropzone) in accelerator path." -ForegroundColor Gray
+    Write-Host "4. Set accelerator threshold" -ForegroundColor Gray
     Write-Host "   - Minimum target count before C# accelerator starts." -ForegroundColor Gray
-    Write-Host "4. Set selection retry count" -ForegroundColor Gray
+    Write-Host "5. Set selection retry count" -ForegroundColor Gray
     Write-Host "   - Number of selection polling attempts." -ForegroundColor Gray
-    Write-Host "5. Set selection retry delay (ms)" -ForegroundColor Gray
+    Write-Host "6. Set selection retry delay (ms)" -ForegroundColor Gray
     Write-Host "   - Delay between selection attempts." -ForegroundColor Gray
-    Write-Host "6. Set large selection trust threshold" -ForegroundColor Gray
+    Write-Host "7. Set large selection trust threshold" -ForegroundColor Gray
     Write-Host "   - Early accept target count for large selections." -ForegroundColor Gray
-    Write-Host "7. Open state directory" -ForegroundColor Gray
-    Write-Host "8. Install / Update NuclearDelete" -ForegroundColor Gray
-    Write-Host "9. Show installation/state paths" -ForegroundColor Gray
+    Write-Host "8. Open state directory" -ForegroundColor Gray
+    Write-Host "9. Install / Update NuclearDelete" -ForegroundColor Gray
+    Write-Host "P. Show installation/state paths" -ForegroundColor Gray
     Write-Host "0. Reset defaults" -ForegroundColor Gray
     Write-Host "H. How to use" -ForegroundColor Gray
     Write-Host ""
@@ -310,6 +314,7 @@ while ($true) {
     Clear-Host
     $debugMode = [bool]$config.debug_mode
     $acceleratorEnabled = [bool]$config.accelerator_enabled
+    $moveFirstStrategy = [bool]$config.strategy_move_first
     $acceleratorThreshold = [int]$config.accelerator_threshold
     $retryCount = [int]$config.selection_retry_count
     $retryDelay = [int]$config.selection_retry_delay_ms
@@ -320,6 +325,7 @@ while ($true) {
     Write-Host "MODES : [ " -NoNewline -ForegroundColor Yellow
     Write-StatePair -Name "debug" -Value $debugMode -First
     Write-StatePair -Name "accelerator" -Value $acceleratorEnabled
+    Write-StatePair -Name "move_first" -Value $moveFirstStrategy
     Write-Host " ]" -ForegroundColor Yellow
     Write-Host "TUNE  : [ " -NoNewline -ForegroundColor Yellow
     Write-TunePair -Name "threshold" -Value $acceleratorThreshold -First
@@ -332,13 +338,15 @@ while ($true) {
 
     Write-MenuLine -Number "1" -Prefix "Toggle " -Highlight "debug" -Suffix " mode" -HighlightColor Red
     Write-MenuLine -Number "2" -Prefix "Toggle " -Highlight "accelerator" -Suffix " mode" -HighlightColor Green
-    Write-MenuLine -Number "3" -Prefix "Set accelerator " -Highlight "threshold" -Suffix "" -HighlightColor Green
-    Write-MenuLine -Number "4" -Prefix "Set selection retry " -Highlight "count" -Suffix "" -HighlightColor Green
-    Write-MenuLine -Number "5" -Prefix "Set selection retry " -Highlight "delay_ms" -Suffix "" -HighlightColor Green
-    Write-MenuLine -Number "6" -Prefix "Set large selection trust " -Highlight "threshold" -Suffix "" -HighlightColor Green
-    Write-MenuLine -Number "7" -Prefix "" -Highlight "Open state directory" -Suffix "" -HighlightColor Cyan
-    Write-MenuLine -Number "8" -Prefix "Install / Update " -Highlight "NuclearDelete" -Suffix "" -HighlightColor Cyan
-    Write-MenuLine -Number "9" -Prefix "Show install/state " -Highlight "paths" -Suffix "" -HighlightColor Cyan
+    Write-MenuLine -Number "3" -Prefix "Toggle " -Highlight "move_first" -Suffix " strategy" -HighlightColor Green
+    Write-MenuLine -Number "4" -Prefix "Set accelerator " -Highlight "threshold" -Suffix "" -HighlightColor Green
+    Write-MenuLine -Number "5" -Prefix "Set selection retry " -Highlight "count" -Suffix "" -HighlightColor Green
+    Write-MenuLine -Number "6" -Prefix "Set selection retry " -Highlight "delay_ms" -Suffix "" -HighlightColor Green
+    Write-MenuLine -Number "7" -Prefix "Set large selection trust " -Highlight "threshold" -Suffix "" -HighlightColor Green
+    Write-MenuLine -Number "8" -Prefix "" -Highlight "Open state directory" -Suffix "" -HighlightColor Cyan
+    Write-MenuLine -Number "9" -Prefix "Install / Update " -Highlight "NuclearDelete" -Suffix "" -HighlightColor Cyan
+    Write-Host "[P] " -NoNewline -ForegroundColor Yellow
+    Write-Host "Show install/state paths" -ForegroundColor Cyan
     Write-MenuLine -Number "0" -Prefix "" -Highlight "Reset defaults" -Suffix "" -HighlightColor Yellow
     Write-Host "[H] " -NoNewline -ForegroundColor Yellow
     Write-Host "How to use" -ForegroundColor Cyan
@@ -371,6 +379,7 @@ while ($true) {
         "NumPad8" { $choice = "8" }
         "D9" { $choice = "9" }
         "NumPad9" { $choice = "9" }
+        "P" { $choice = "P" }
         "H" { $choice = "H" }
         "Escape" {
             Write-Host "Exit." -ForegroundColor Yellow
@@ -393,43 +402,47 @@ while ($true) {
             Save-Config -Config $config
         }
         "3" {
+            $config.strategy_move_first = -not [bool]$config.strategy_move_first
+            Save-Config -Config $config
+        }
+        "4" {
             $result = Read-IntegerWithEscape -PromptText "accelerator_threshold" -CurrentValue ([int]$config.accelerator_threshold) -Min 100 -Max 500000
             if (-not $result.Cancelled) {
                 $config.accelerator_threshold = [int]$result.Value
                 Save-Config -Config $config
             }
         }
-        "4" {
+        "5" {
             $result = Read-IntegerWithEscape -PromptText "selection_retry_count" -CurrentValue ([int]$config.selection_retry_count) -Min 1 -Max 50
             if (-not $result.Cancelled) {
                 $config.selection_retry_count = [int]$result.Value
                 Save-Config -Config $config
             }
         }
-        "5" {
+        "6" {
             $result = Read-IntegerWithEscape -PromptText "selection_retry_delay_ms" -CurrentValue ([int]$config.selection_retry_delay_ms) -Min 0 -Max 1000
             if (-not $result.Cancelled) {
                 $config.selection_retry_delay_ms = [int]$result.Value
                 Save-Config -Config $config
             }
         }
-        "6" {
+        "7" {
             $result = Read-IntegerWithEscape -PromptText "large_selection_trust_threshold" -CurrentValue ([int]$config.large_selection_trust_threshold) -Min 1 -Max 500000
             if (-not $result.Cancelled) {
                 $config.large_selection_trust_threshold = [int]$result.Value
                 Save-Config -Config $config
             }
         }
-        "7" {
+        "8" {
             if (-not (Test-Path -LiteralPath $stateRoot -PathType Container)) {
                 New-Item -Path $stateRoot -ItemType Directory -Force | Out-Null
             }
             Start-Process explorer.exe $stateRoot
         }
-        "8" {
+        "9" {
             Launch-Installer
         }
-        "9" {
+        "P" {
             Write-Host ""
             Write-Host "Install directory : $PSScriptRoot" -ForegroundColor Gray
             Write-Host "State directory   : $stateRoot" -ForegroundColor Gray

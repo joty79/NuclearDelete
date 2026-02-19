@@ -252,6 +252,13 @@
 - Files affected: `NuclearDeleteFolder.ps1`, `PROJECT_RULES.md`.
 - Validation/tests: PowerShell parser validation (`NuclearDeleteFolder.ps1: OK`).
 
+### 2026-02-19 - Optional move-first strategy (ScoopAndNuke) with DeleteTune toggle
+- Problem: Need to test whether move-then-delete can reduce perceived UI churn for very large selections without replacing the stable baseline path.
+- Root cause: Runtime had only direct delete strategy (`Nuke`) and no strategy switch in tune settings.
+- Guardrail: Added opt-in `strategy_move_first` setting; applies only in C# accelerator path and falls back to existing direct delete + final `Remove-Item` cleanup on compile/runtime failures.
+- Files affected: `NuclearDeleteFolder.ps1`, `DeleteTune.ps1`, `DeleteTune.json`, `PROJECT_RULES.md`.
+- Validation/tests: Parser validation OK (`NuclearDeleteFolder.ps1`, `DeleteTune.ps1`).
+
 ## Entry Template
 ### YYYY-MM-DD - Short decision title
 - Problem:

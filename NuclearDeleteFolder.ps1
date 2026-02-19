@@ -15,6 +15,7 @@ $defaultTune = [ordered]@{
     selection_retry_count            = 10
     selection_retry_delay_ms         = 45
     large_selection_trust_threshold  = 1000
+    strategy_move_first              = $false
 }
 
 function Get-PropertyValue {
@@ -122,6 +123,7 @@ function Ensure-TuneConfig {
     $resolved.selection_retry_count = Get-IntSetting (Get-PropertyValue -Object $rawConfig -Name "selection_retry_count") $defaultTune.selection_retry_count 1 50
     $resolved.selection_retry_delay_ms = Get-IntSetting (Get-PropertyValue -Object $rawConfig -Name "selection_retry_delay_ms") $defaultTune.selection_retry_delay_ms 0 1000
     $resolved.large_selection_trust_threshold = Get-IntSetting (Get-PropertyValue -Object $rawConfig -Name "large_selection_trust_threshold") $defaultTune.large_selection_trust_threshold 1 500000
+    $resolved.strategy_move_first = Get-BoolSetting (Get-PropertyValue -Object $rawConfig -Name "strategy_move_first") $defaultTune.strategy_move_first
 
     if ($null -eq $rawConfig) {
         Save-TuneConfig -Config $resolved
@@ -134,6 +136,7 @@ $tuneConfig = Ensure-TuneConfig
 $script:debugMode = $tuneConfig.debug_mode
 $script:acceleratorEnabled = $tuneConfig.accelerator_enabled
 $script:acceleratorThreshold = $tuneConfig.accelerator_threshold
+$script:strategyMoveFirst = $tuneConfig.strategy_move_first
 $selectionRetryCount = $tuneConfig.selection_retry_count
 $selectionRetryDelayMs = $tuneConfig.selection_retry_delay_ms
 $largeSelectionTrustThreshold = $tuneConfig.large_selection_trust_threshold
@@ -274,6 +277,20 @@ using System.IO;
 using System.Threading.Tasks;
 
 public static class NuclearAccelerator {
+    private static string BuildUniqueDestination(string dropZonePath, string sourcePath) {
+        var name = Path.GetFileName(sourcePath);
+        if (string.IsNullOrWhiteSpace(name)) {
+            name = Guid.NewGuid().ToString("N");
+        }
+
+        var destination = Path.Combine(dropZonePath, name);
+        if (!File.Exists(destination) && !Directory.Exists(destination)) {
+            return destination;
+        }
+
+        return Path.Combine(dropZonePath, Guid.NewGuid().ToString("N") + "_" + name);
+    }
+
     public static string[] Nuke(string[] paths) {
         var failed = new ConcurrentBag<string>();
         var dirs = new ConcurrentBag<string>();
@@ -328,6 +345,85 @@ public static class NuclearAccelerator {
 
         return failed.ToArray();
     }
+
+    public static string[] ScoopAndNuke(string[] paths, string dropZonePath) {
+        if (paths == null || paths.Length == 0 || string.IsNullOrWhiteSpace(dropZonePath)) {
+            return Array.Empty<string>();
+        }
+
+        var failed = new ConcurrentBag<string>();
+        var dirs = new List<string>();
+        var dirsLock = new object();
+
+        try {
+            Directory.CreateDirectory(dropZonePath);
+            var dzAttr = File.GetAttributes(dropZonePath);
+            if ((dzAttr & FileAttributes.Hidden) == 0) {
+                File.SetAttributes(dropZonePath, dzAttr | FileAttributes.Hidden);
+            }
+        }
+        catch {
+            return Nuke(paths);
+        }
+
+        Parallel.ForEach(paths, path => {
+            if (string.IsNullOrWhiteSpace(path)) return;
+
+            try {
+                var attr = File.GetAttributes(path);
+                var forceMask = FileAttributes.ReadOnly | FileAttributes.Hidden | FileAttributes.System;
+                if ((attr & forceMask) != 0) {
+                    File.SetAttributes(path, attr & ~forceMask);
+                    attr = File.GetAttributes(path);
+                }
+
+                if ((attr & FileAttributes.Directory) == FileAttributes.Directory) {
+                    lock (dirsLock) {
+                        dirs.Add(path);
+                    }
+                }
+                else {
+                    var destination = BuildUniqueDestination(dropZonePath, path);
+                    File.Move(path, destination);
+                }
+            }
+            catch (FileNotFoundException) { }
+            catch (DirectoryNotFoundException) { }
+            catch {
+                failed.Add(path);
+            }
+        });
+
+        dirs.Sort((left, right) => right.Length.CompareTo(left.Length));
+        foreach (var dir in dirs) {
+            try {
+                if (!Directory.Exists(dir)) continue;
+
+                var attr = File.GetAttributes(dir);
+                var forceMask = FileAttributes.ReadOnly | FileAttributes.Hidden | FileAttributes.System;
+                if ((attr & forceMask) != 0) {
+                    File.SetAttributes(dir, attr & ~forceMask);
+                }
+
+                var destination = BuildUniqueDestination(dropZonePath, dir);
+                Directory.Move(dir, destination);
+            }
+            catch (FileNotFoundException) { }
+            catch (DirectoryNotFoundException) { }
+            catch {
+                failed.Add(dir);
+            }
+        }
+
+        try {
+            Directory.Delete(dropZonePath, true);
+        }
+        catch {
+            failed.Add(dropZonePath);
+        }
+
+        return failed.ToArray();
+    }
 }
 "@
 }
@@ -361,8 +457,23 @@ function Invoke-DeleteBatch {
 
     if ($useAccelerator) {
         try {
-            Write-DebugLog "Delete path: CSharp accelerator (count=$($targetsArray.Count))"
-            $failedItems = [NuclearAccelerator]::Nuke([string[]]$targetsArray)
+            if ($script:strategyMoveFirst) {
+                $dropBase = Split-Path -Path $targetsArray[0] -Parent
+                if ([string]::IsNullOrWhiteSpace($dropBase)) {
+                    $dropBase = [System.IO.Path]::GetPathRoot($targetsArray[0])
+                }
+                if ([string]::IsNullOrWhiteSpace($dropBase)) {
+                    $dropBase = $env:TEMP
+                }
+
+                $dropZone = Join-Path $dropBase ("._NuclearDrop_" + [Guid]::NewGuid().ToString("N"))
+                Write-DebugLog "Delete path: CSharp ScoopAndNuke (count=$($targetsArray.Count), dropZone='$dropZone')"
+                $failedItems = [NuclearAccelerator]::ScoopAndNuke([string[]]$targetsArray, [string]$dropZone)
+            }
+            else {
+                Write-DebugLog "Delete path: CSharp accelerator (count=$($targetsArray.Count))"
+                $failedItems = [NuclearAccelerator]::Nuke([string[]]$targetsArray)
+            }
         }
         catch {
             $useAccelerator = $false
@@ -445,7 +556,7 @@ if (-not $createdNew) {
 }
 
 try {
-    Write-DebugLog "Start anchor='$AnchorPath' threshold=$script:acceleratorThreshold accel=$script:acceleratorEnabled"
+    Write-DebugLog "Start anchor='$AnchorPath' threshold=$script:acceleratorThreshold accel=$script:acceleratorEnabled move_first=$script:strategyMoveFirst"
     $targets = Resolve-Targets -AnySelectedPath $AnchorPath
     Write-DebugLog "Resolved targets count=$($targets.Count)"
     $exitCode = Invoke-DeleteBatch -Targets $targets
