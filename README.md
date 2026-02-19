@@ -83,18 +83,17 @@ This design is slower than the absolute-minimal single-call script, but much mor
 
 ## Install / Update
 
-1. Update absolute paths in `.reg` / `.vbs` if your folder location differs.
-2. Import registry:
+Use the installer (recommended):
 
 ```powershell
-reg import "D:\Users\joty79\scripts\NuclearDelete\NuclearDeleteFolder.reg"
+pwsh -NoProfile -ExecutionPolicy Bypass -File "D:\Users\joty79\scripts\NuclearDelete\Install.ps1"
 ```
 
-3. If Explorer caches old menu behavior:
+Direct actions:
 
 ```powershell
-Stop-Process -Name explorer -Force
-Start-Process explorer.exe
+pwsh -NoProfile -ExecutionPolicy Bypass -File "D:\Users\joty79\scripts\NuclearDelete\Install.ps1" -Action Install
+pwsh -NoProfile -ExecutionPolicy Bypass -File "D:\Users\joty79\scripts\NuclearDelete\Install.ps1" -Action Uninstall
 ```
 
 ## Troubleshooting
@@ -103,9 +102,9 @@ Start-Process explorer.exe
 
 Check:
 
-- `.reg` command points to the correct `NuclearDeleteFolder.vbs` path
-- `NuclearDeleteFolder.vbs` points to the correct `NuclearDeleteFolder.ps1` path
-- `%LOCALAPPDATA%\MoveTo\NuclearDelete\worker.lock` is not stale
+- context-menu command points to installed `NuclearDeleteFolder.vbs` under `%LOCALAPPDATA%\NuclearDeleteContext`
+- installed `NuclearDeleteFolder.vbs` points to installed `NuclearDeleteFolder.ps1`
+- `%LOCALAPPDATA%\NuclearDelete\worker.lock` is not stale
 
 If needed, remove stale lock:
 

@@ -16,6 +16,13 @@
 - Prefer side-by-side experiments (for example, RoboCopy-based flow) instead of replacing the native path directly.
 
 ## Decision Log
+### 2026-02-19 - Add installer workflow + RoboTune-style DeleteTune UI
+- Problem: NuclearDelete lacked a consistent install/uninstall flow and DeleteTune visual style differed from RoboTune.
+- Root cause: Manual `.reg` import + hardcoded script paths caused friction and inconsistent UX.
+- Guardrail: Use `Install.ps1` as canonical installer (copy to `%LOCALAPPDATA%\NuclearDeleteContext`, rewrite VBS script path, register context menu via `reg.exe`), and keep DeleteTune menu visual pattern aligned with RoboTune.
+- Files affected: `Install.ps1`, `DeleteTune.ps1`, `README.md`.
+- Validation/tests: Parser validation for `Install.ps1` and `DeleteTune.ps1`; non-destructive load test for installer action parsing.
+
 ### 2026-02-19 - DeleteTune + conditional C# accelerator (safe hybrid)
 - Problem: Needed faster large-batch delete path plus runtime tuning controls (debug/threshold/retry) without editing core script every time.
 - Root cause: Previous PowerShell-only parallel attempts were unstable; no dedicated tune surface existed.

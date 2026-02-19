@@ -2,18 +2,21 @@ param(
     [switch]$ShowPathOnly
 )
 
+[Console]::InputEncoding = [Text.UTF8Encoding]::UTF8
+[Console]::OutputEncoding = [Text.UTF8Encoding]::UTF8
+
 $stateRoot = Join-Path $env:LOCALAPPDATA "NuclearDelete"
 $configPath = Join-Path $stateRoot "DeleteTune.json"
 $repoDefaultPath = Join-Path $PSScriptRoot "DeleteTune.json"
 
 function New-DefaultTuneConfig {
     return [ordered]@{
-        debug_mode                       = $false
-        accelerator_enabled              = $true
-        accelerator_threshold            = 2000
-        selection_retry_count            = 10
-        selection_retry_delay_ms         = 45
-        large_selection_trust_threshold  = 1000
+        debug_mode                      = $false
+        accelerator_enabled             = $true
+        accelerator_threshold           = 2000
+        selection_retry_count           = 10
+        selection_retry_delay_ms        = 45
+        large_selection_trust_threshold = 1000
     }
 }
 
@@ -124,56 +127,175 @@ function Load-Config {
     return $resolved
 }
 
-function Show-Config {
-    param([hashtable]$Config)
+function Read-LineWithEscape {
+    param(
+        [string]$PromptText,
+        [ConsoleColor]$PromptColor = [ConsoleColor]::Gray
+    )
 
-    Clear-Host
-    Write-Host "DeleteTune"
-    Write-Host "=========="
-    Write-Host "1. Toggle debug_mode                       : $($Config.debug_mode)"
-    Write-Host "2. Toggle accelerator_enabled              : $($Config.accelerator_enabled)"
-    Write-Host "3. Set accelerator_threshold               : $($Config.accelerator_threshold)"
-    Write-Host "4. Set selection_retry_count               : $($Config.selection_retry_count)"
-    Write-Host "5. Set selection_retry_delay_ms            : $($Config.selection_retry_delay_ms)"
-    Write-Host "6. Set large_selection_trust_threshold     : $($Config.large_selection_trust_threshold)"
-    Write-Host "7. Open state directory"
-    Write-Host "8. Show install/state paths"
-    Write-Host "9. Reset defaults"
-    Write-Host "0. Exit"
-    Write-Host ""
-    Write-Host "Config: $configPath"
-    Write-Host ""
+    Write-Host -NoNewline ($PromptText + ": ") -ForegroundColor $PromptColor
+    $buffer = New-Object System.Text.StringBuilder
+    while ($true) {
+        $keyInfo = [Console]::ReadKey($true)
+        switch ($keyInfo.Key) {
+            "Escape" {
+                Write-Host ""
+                return [pscustomobject]@{
+                    Cancelled = $true
+                    Text      = [string]$buffer.ToString()
+                }
+            }
+            "Enter" {
+                Write-Host ""
+                return [pscustomobject]@{
+                    Cancelled = $false
+                    Text      = [string]$buffer.ToString()
+                }
+            }
+            "Backspace" {
+                if ($buffer.Length -gt 0) {
+                    [void]$buffer.Remove($buffer.Length - 1, 1)
+                    Write-Host "`b `b" -NoNewline
+                }
+            }
+            default {
+                if ($keyInfo.KeyChar -ne [char]0) {
+                    [void]$buffer.Append($keyInfo.KeyChar)
+                    Write-Host $keyInfo.KeyChar -NoNewline
+                }
+            }
+        }
+    }
 }
 
-function Read-IntegerInRange {
+function Read-IntegerWithEscape {
     param(
         [Parameter(Mandatory = $true)]
-        [string]$Prompt,
+        [string]$PromptText,
         [Parameter(Mandatory = $true)]
-        [int]$Current,
+        [int]$CurrentValue,
         [Parameter(Mandatory = $true)]
         [int]$Min,
         [Parameter(Mandatory = $true)]
         [int]$Max
     )
 
-    $value = Read-Host "$Prompt [$Current]"
-    if ([string]::IsNullOrWhiteSpace($value)) { return $Current }
+    while ($true) {
+        $line = Read-LineWithEscape -PromptText ("{0} [{1}] (blank=keep, ESC=back)" -f $PromptText, $CurrentValue)
+        if ($line.Cancelled) {
+            return [pscustomobject]@{
+                Cancelled = $true
+                Value     = $CurrentValue
+            }
+        }
 
-    $parsed = 0
-    if (-not [int]::TryParse($value, [ref]$parsed)) {
-        Write-Host "Invalid integer. Press Enter."
-        [void](Read-Host)
-        return $null
+        $text = $line.Text
+        if ([string]::IsNullOrWhiteSpace($text)) {
+            return [pscustomobject]@{
+                Cancelled = $false
+                Value     = $CurrentValue
+            }
+        }
+
+        $parsed = 0
+        if (-not [int]::TryParse($text, [ref]$parsed)) {
+            Write-Host "Invalid integer. Use $Min..$Max." -ForegroundColor Red
+            Start-Sleep -Milliseconds 700
+            continue
+        }
+
+        if ($parsed -lt $Min -or $parsed -gt $Max) {
+            Write-Host "Out of range ($Min-$Max)." -ForegroundColor Red
+            Start-Sleep -Milliseconds 700
+            continue
+        }
+
+        return [pscustomobject]@{
+            Cancelled = $false
+            Value     = $parsed
+        }
+    }
+}
+
+function Write-StatePair {
+    param(
+        [string]$Name,
+        [bool]$Value,
+        [switch]$First
+    )
+
+    if (-not $First) { Write-Host " | " -NoNewline -ForegroundColor Yellow }
+    Write-Host -NoNewline ($Name + "=") -ForegroundColor Cyan
+    if ($Value) {
+        Write-Host -NoNewline "True" -ForegroundColor Green
+    }
+    else {
+        Write-Host -NoNewline "False" -ForegroundColor Red
+    }
+}
+
+function Write-TunePair {
+    param(
+        [string]$Name,
+        [int]$Value,
+        [switch]$First
+    )
+
+    if (-not $First) { Write-Host " | " -NoNewline -ForegroundColor Yellow }
+    Write-Host -NoNewline ($Name + "=") -ForegroundColor Cyan
+    Write-Host -NoNewline ([string]$Value) -ForegroundColor Green
+}
+
+function Write-MenuLine {
+    param(
+        [string]$Number,
+        [string]$Prefix,
+        [string]$Highlight,
+        [string]$Suffix,
+        [ConsoleColor]$HighlightColor = [ConsoleColor]::Cyan
+    )
+
+    Write-Host ($Number + ". ") -NoNewline -ForegroundColor Gray
+    if ($Prefix) { Write-Host $Prefix -NoNewline -ForegroundColor Gray }
+    Write-Host $Highlight -NoNewline -ForegroundColor $HighlightColor
+    if ($Suffix) { Write-Host $Suffix -ForegroundColor Gray } else { Write-Host "" }
+}
+
+function Show-HowToUse {
+    Write-Host ""
+    Write-Host "=== How To Use ===" -ForegroundColor Cyan
+    Write-Host "1. Toggle debug mode" -ForegroundColor Gray
+    Write-Host "   - Writes runtime trace to NuclearDelete.debug.log." -ForegroundColor Gray
+    Write-Host "2. Toggle accelerator mode" -ForegroundColor Gray
+    Write-Host "   - Enables/disables C# delete accelerator path." -ForegroundColor Gray
+    Write-Host "3. Set accelerator threshold" -ForegroundColor Gray
+    Write-Host "   - Minimum target count before C# accelerator starts." -ForegroundColor Gray
+    Write-Host "4. Set selection retry count" -ForegroundColor Gray
+    Write-Host "   - Number of selection polling attempts." -ForegroundColor Gray
+    Write-Host "5. Set selection retry delay (ms)" -ForegroundColor Gray
+    Write-Host "   - Delay between selection attempts." -ForegroundColor Gray
+    Write-Host "6. Set large selection trust threshold" -ForegroundColor Gray
+    Write-Host "   - Early accept target count for large selections." -ForegroundColor Gray
+    Write-Host "7. Open state directory" -ForegroundColor Gray
+    Write-Host "8. Install / Update NuclearDelete" -ForegroundColor Gray
+    Write-Host "9. Show installation/state paths" -ForegroundColor Gray
+    Write-Host "0. Reset defaults" -ForegroundColor Gray
+    Write-Host "H. How to use" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "Global: every change is saved immediately." -ForegroundColor Green
+    Write-Host "Press any key to return..." -ForegroundColor DarkCyan
+    [Console]::ReadKey($true) | Out-Null
+}
+
+function Launch-Installer {
+    $installerPath = Join-Path $PSScriptRoot 'Install.ps1'
+    if (-not (Test-Path -LiteralPath $installerPath -PathType Leaf)) {
+        Write-Host "Install.ps1 not found: $installerPath" -ForegroundColor Red
+        Start-Sleep -Milliseconds 900
+        return
     }
 
-    if ($parsed -lt $Min -or $parsed -gt $Max) {
-        Write-Host "Out of range ($Min-$Max). Press Enter."
-        [void](Read-Host)
-        return $null
-    }
-
-    return $parsed
+    Start-Process pwsh.exe -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $installerPath)
 }
 
 if ($ShowPathOnly) {
@@ -185,68 +307,145 @@ if ($ShowPathOnly) {
 $config = Load-Config
 
 while ($true) {
-    Show-Config -Config $config
-    $choice = Read-Host "Select option"
+    Clear-Host
+    $debugMode = [bool]$config.debug_mode
+    $acceleratorEnabled = [bool]$config.accelerator_enabled
+    $acceleratorThreshold = [int]$config.accelerator_threshold
+    $retryCount = [int]$config.selection_retry_count
+    $retryDelay = [int]$config.selection_retry_delay_ms
+    $trustThreshold = [int]$config.large_selection_trust_threshold
+
+    Write-Host ""
+    Write-Host "=== DeleteTune Menu ===" -ForegroundColor Green
+    Write-Host "MODES : [ " -NoNewline -ForegroundColor Yellow
+    Write-StatePair -Name "debug" -Value $debugMode -First
+    Write-StatePair -Name "accelerator" -Value $acceleratorEnabled
+    Write-Host " ]" -ForegroundColor Yellow
+    Write-Host "TUNE  : [ " -NoNewline -ForegroundColor Yellow
+    Write-TunePair -Name "threshold" -Value $acceleratorThreshold -First
+    Write-TunePair -Name "retry_count" -Value $retryCount
+    Write-TunePair -Name "retry_delay_ms" -Value $retryDelay
+    Write-TunePair -Name "trust_threshold" -Value $trustThreshold
+    Write-Host " ]" -ForegroundColor Yellow
+    Write-Host "PATH  : " -NoNewline -ForegroundColor Yellow
+    Write-Host $configPath -ForegroundColor Green
+
+    Write-MenuLine -Number "1" -Prefix "Toggle " -Highlight "debug" -Suffix " mode" -HighlightColor Red
+    Write-MenuLine -Number "2" -Prefix "Toggle " -Highlight "accelerator" -Suffix " mode" -HighlightColor Green
+    Write-MenuLine -Number "3" -Prefix "Set accelerator " -Highlight "threshold" -Suffix "" -HighlightColor Green
+    Write-MenuLine -Number "4" -Prefix "Set selection retry " -Highlight "count" -Suffix "" -HighlightColor Green
+    Write-MenuLine -Number "5" -Prefix "Set selection retry " -Highlight "delay_ms" -Suffix "" -HighlightColor Green
+    Write-MenuLine -Number "6" -Prefix "Set large selection trust " -Highlight "threshold" -Suffix "" -HighlightColor Green
+    Write-MenuLine -Number "7" -Prefix "" -Highlight "Open state directory" -Suffix "" -HighlightColor Cyan
+    Write-MenuLine -Number "8" -Prefix "Install / Update " -Highlight "NuclearDelete" -Suffix "" -HighlightColor Cyan
+    Write-MenuLine -Number "9" -Prefix "Show install/state " -Highlight "paths" -Suffix "" -HighlightColor Cyan
+    Write-MenuLine -Number "0" -Prefix "" -Highlight "Reset defaults" -Suffix "" -HighlightColor Yellow
+    Write-Host "[H] " -NoNewline -ForegroundColor Yellow
+    Write-Host "How to use" -ForegroundColor Cyan
+    Write-Host "[Esc] " -NoNewline -ForegroundColor Yellow
+    Write-Host "Exit" -ForegroundColor Red
+
+    Write-Host -NoNewline "Select option: "
+    $keyInfo = [Console]::ReadKey($true)
+    Write-Host ""
+
+    $choice = $null
+    switch ($keyInfo.Key) {
+        "D0" { $choice = "0" }
+        "NumPad0" { $choice = "0" }
+        "D1" { $choice = "1" }
+        "NumPad1" { $choice = "1" }
+        "D2" { $choice = "2" }
+        "NumPad2" { $choice = "2" }
+        "D3" { $choice = "3" }
+        "NumPad3" { $choice = "3" }
+        "D4" { $choice = "4" }
+        "NumPad4" { $choice = "4" }
+        "D5" { $choice = "5" }
+        "NumPad5" { $choice = "5" }
+        "D6" { $choice = "6" }
+        "NumPad6" { $choice = "6" }
+        "D7" { $choice = "7" }
+        "NumPad7" { $choice = "7" }
+        "D8" { $choice = "8" }
+        "NumPad8" { $choice = "8" }
+        "D9" { $choice = "9" }
+        "NumPad9" { $choice = "9" }
+        "H" { $choice = "H" }
+        "Escape" {
+            Write-Host "Exit." -ForegroundColor Yellow
+            return
+        }
+        default {
+            Write-Host "Invalid option." -ForegroundColor Red
+            Start-Sleep -Milliseconds 700
+            continue
+        }
+    }
 
     switch ($choice) {
         "1" {
-            $config.debug_mode = -not $config.debug_mode
+            $config.debug_mode = -not [bool]$config.debug_mode
             Save-Config -Config $config
         }
         "2" {
-            $config.accelerator_enabled = -not $config.accelerator_enabled
+            $config.accelerator_enabled = -not [bool]$config.accelerator_enabled
             Save-Config -Config $config
         }
         "3" {
-            $newValue = Read-IntegerInRange -Prompt "accelerator_threshold" -Current $config.accelerator_threshold -Min 100 -Max 500000
-            if ($null -ne $newValue) {
-                $config.accelerator_threshold = $newValue
+            $result = Read-IntegerWithEscape -PromptText "accelerator_threshold" -CurrentValue ([int]$config.accelerator_threshold) -Min 100 -Max 500000
+            if (-not $result.Cancelled) {
+                $config.accelerator_threshold = [int]$result.Value
                 Save-Config -Config $config
             }
         }
         "4" {
-            $newValue = Read-IntegerInRange -Prompt "selection_retry_count" -Current $config.selection_retry_count -Min 1 -Max 50
-            if ($null -ne $newValue) {
-                $config.selection_retry_count = $newValue
+            $result = Read-IntegerWithEscape -PromptText "selection_retry_count" -CurrentValue ([int]$config.selection_retry_count) -Min 1 -Max 50
+            if (-not $result.Cancelled) {
+                $config.selection_retry_count = [int]$result.Value
                 Save-Config -Config $config
             }
         }
         "5" {
-            $newValue = Read-IntegerInRange -Prompt "selection_retry_delay_ms" -Current $config.selection_retry_delay_ms -Min 0 -Max 1000
-            if ($null -ne $newValue) {
-                $config.selection_retry_delay_ms = $newValue
+            $result = Read-IntegerWithEscape -PromptText "selection_retry_delay_ms" -CurrentValue ([int]$config.selection_retry_delay_ms) -Min 0 -Max 1000
+            if (-not $result.Cancelled) {
+                $config.selection_retry_delay_ms = [int]$result.Value
                 Save-Config -Config $config
             }
         }
         "6" {
-            $newValue = Read-IntegerInRange -Prompt "large_selection_trust_threshold" -Current $config.large_selection_trust_threshold -Min 1 -Max 500000
-            if ($null -ne $newValue) {
-                $config.large_selection_trust_threshold = $newValue
+            $result = Read-IntegerWithEscape -PromptText "large_selection_trust_threshold" -CurrentValue ([int]$config.large_selection_trust_threshold) -Min 1 -Max 500000
+            if (-not $result.Cancelled) {
+                $config.large_selection_trust_threshold = [int]$result.Value
                 Save-Config -Config $config
             }
         }
         "7" {
+            if (-not (Test-Path -LiteralPath $stateRoot -PathType Container)) {
+                New-Item -Path $stateRoot -ItemType Directory -Force | Out-Null
+            }
             Start-Process explorer.exe $stateRoot
         }
         "8" {
-            Write-Host ""
-            Write-Host "Install directory : $PSScriptRoot"
-            Write-Host "State directory   : $stateRoot"
-            Write-Host "Config path       : $configPath"
-            Write-Host ""
-            Write-Host "Press Enter."
-            [void](Read-Host)
+            Launch-Installer
         }
         "9" {
-            $config = New-DefaultTuneConfig
-            Save-Config -Config $config
+            Write-Host ""
+            Write-Host "Install directory : $PSScriptRoot" -ForegroundColor Gray
+            Write-Host "State directory   : $stateRoot" -ForegroundColor Gray
+            Write-Host "Config path       : $configPath" -ForegroundColor Gray
+            Write-Host ""
+            Write-Host "Press any key to return..." -ForegroundColor DarkCyan
+            [Console]::ReadKey($true) | Out-Null
+        }
+        "H" {
+            Show-HowToUse
         }
         "0" {
-            break
-        }
-        default {
-            Write-Host "Unknown option. Press Enter."
-            [void](Read-Host)
+            $config = New-DefaultTuneConfig
+            Save-Config -Config $config
+            Write-Host "Defaults restored." -ForegroundColor Green
+            Start-Sleep -Milliseconds 700
         }
     }
 }
