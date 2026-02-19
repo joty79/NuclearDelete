@@ -14,7 +14,9 @@ function New-DefaultTuneConfig {
         debug_mode                      = $false
         accelerator_enabled             = $true
         strategy_move_first             = $false
+        strategy_robocopy_combo         = $false
         accelerator_threshold           = 2000
+        robocopy_combo_threshold        = 5000
         selection_retry_count           = 10
         selection_retry_delay_ms        = 45
         large_selection_trust_threshold = 1000
@@ -120,7 +122,9 @@ function Load-Config {
     $resolved.debug_mode = Get-BoolSetting (Get-PropertyValue -Object $raw -Name "debug_mode") $defaults.debug_mode
     $resolved.accelerator_enabled = Get-BoolSetting (Get-PropertyValue -Object $raw -Name "accelerator_enabled") $defaults.accelerator_enabled
     $resolved.strategy_move_first = Get-BoolSetting (Get-PropertyValue -Object $raw -Name "strategy_move_first") $defaults.strategy_move_first
+    $resolved.strategy_robocopy_combo = Get-BoolSetting (Get-PropertyValue -Object $raw -Name "strategy_robocopy_combo") $defaults.strategy_robocopy_combo
     $resolved.accelerator_threshold = Get-IntSetting (Get-PropertyValue -Object $raw -Name "accelerator_threshold") $defaults.accelerator_threshold 100 500000
+    $resolved.robocopy_combo_threshold = Get-IntSetting (Get-PropertyValue -Object $raw -Name "robocopy_combo_threshold") $defaults.robocopy_combo_threshold 100 500000
     $resolved.selection_retry_count = Get-IntSetting (Get-PropertyValue -Object $raw -Name "selection_retry_count") $defaults.selection_retry_count 1 50
     $resolved.selection_retry_delay_ms = Get-IntSetting (Get-PropertyValue -Object $raw -Name "selection_retry_delay_ms") $defaults.selection_retry_delay_ms 0 1000
     $resolved.large_selection_trust_threshold = Get-IntSetting (Get-PropertyValue -Object $raw -Name "large_selection_trust_threshold") $defaults.large_selection_trust_threshold 1 500000
@@ -271,9 +275,13 @@ function Show-HowToUse {
     Write-Host "2. Toggle accelerator mode" -ForegroundColor Gray
     Write-Host "   - Enables/disables C# delete accelerator path." -ForegroundColor Gray
     Write-Host "3. Toggle move-first strategy" -ForegroundColor Gray
-    Write-Host "   - Uses scoop-and-nuke (move then delete dropzone) in accelerator path." -ForegroundColor Gray
+    Write-Host "   - Uses Explorer bulk move (MoveHere) to dropzone, then nukes dropzone." -ForegroundColor Gray
+    Write-Host "R. Toggle robocopy-combo strategy" -ForegroundColor Gray
+    Write-Host "   - Uses robocopy /MOVE select-all token style + nuclear dropzone delete." -ForegroundColor Gray
     Write-Host "4. Set accelerator threshold" -ForegroundColor Gray
     Write-Host "   - Minimum target count before C# accelerator starts." -ForegroundColor Gray
+    Write-Host "T. Set robocopy-combo threshold" -ForegroundColor Gray
+    Write-Host "   - Minimum selection count before robocopy combo is considered." -ForegroundColor Gray
     Write-Host "5. Set selection retry count" -ForegroundColor Gray
     Write-Host "   - Number of selection polling attempts." -ForegroundColor Gray
     Write-Host "6. Set selection retry delay (ms)" -ForegroundColor Gray
@@ -315,7 +323,9 @@ while ($true) {
     $debugMode = [bool]$config.debug_mode
     $acceleratorEnabled = [bool]$config.accelerator_enabled
     $moveFirstStrategy = [bool]$config.strategy_move_first
+    $robocopyComboStrategy = [bool]$config.strategy_robocopy_combo
     $acceleratorThreshold = [int]$config.accelerator_threshold
+    $robocopyComboThreshold = [int]$config.robocopy_combo_threshold
     $retryCount = [int]$config.selection_retry_count
     $retryDelay = [int]$config.selection_retry_delay_ms
     $trustThreshold = [int]$config.large_selection_trust_threshold
@@ -326,9 +336,11 @@ while ($true) {
     Write-StatePair -Name "debug" -Value $debugMode -First
     Write-StatePair -Name "accelerator" -Value $acceleratorEnabled
     Write-StatePair -Name "move_first" -Value $moveFirstStrategy
+    Write-StatePair -Name "robocopy_combo" -Value $robocopyComboStrategy
     Write-Host " ]" -ForegroundColor Yellow
     Write-Host "TUNE  : [ " -NoNewline -ForegroundColor Yellow
     Write-TunePair -Name "threshold" -Value $acceleratorThreshold -First
+    Write-TunePair -Name "robo_combo_threshold" -Value $robocopyComboThreshold
     Write-TunePair -Name "retry_count" -Value $retryCount
     Write-TunePair -Name "retry_delay_ms" -Value $retryDelay
     Write-TunePair -Name "trust_threshold" -Value $trustThreshold
@@ -339,7 +351,11 @@ while ($true) {
     Write-MenuLine -Number "1" -Prefix "Toggle " -Highlight "debug" -Suffix " mode" -HighlightColor Red
     Write-MenuLine -Number "2" -Prefix "Toggle " -Highlight "accelerator" -Suffix " mode" -HighlightColor Green
     Write-MenuLine -Number "3" -Prefix "Toggle " -Highlight "move_first" -Suffix " strategy" -HighlightColor Green
+    Write-Host "[R] " -NoNewline -ForegroundColor Yellow
+    Write-Host "Toggle robocopy_combo strategy" -ForegroundColor Green
     Write-MenuLine -Number "4" -Prefix "Set accelerator " -Highlight "threshold" -Suffix "" -HighlightColor Green
+    Write-Host "[T] " -NoNewline -ForegroundColor Yellow
+    Write-Host "Set robocopy_combo threshold" -ForegroundColor Green
     Write-MenuLine -Number "5" -Prefix "Set selection retry " -Highlight "count" -Suffix "" -HighlightColor Green
     Write-MenuLine -Number "6" -Prefix "Set selection retry " -Highlight "delay_ms" -Suffix "" -HighlightColor Green
     Write-MenuLine -Number "7" -Prefix "Set large selection trust " -Highlight "threshold" -Suffix "" -HighlightColor Green
@@ -379,6 +395,8 @@ while ($true) {
         "NumPad8" { $choice = "8" }
         "D9" { $choice = "9" }
         "NumPad9" { $choice = "9" }
+        "R" { $choice = "R" }
+        "T" { $choice = "T" }
         "P" { $choice = "P" }
         "H" { $choice = "H" }
         "Escape" {
@@ -405,10 +423,21 @@ while ($true) {
             $config.strategy_move_first = -not [bool]$config.strategy_move_first
             Save-Config -Config $config
         }
+        "R" {
+            $config.strategy_robocopy_combo = -not [bool]$config.strategy_robocopy_combo
+            Save-Config -Config $config
+        }
         "4" {
             $result = Read-IntegerWithEscape -PromptText "accelerator_threshold" -CurrentValue ([int]$config.accelerator_threshold) -Min 100 -Max 500000
             if (-not $result.Cancelled) {
                 $config.accelerator_threshold = [int]$result.Value
+                Save-Config -Config $config
+            }
+        }
+        "T" {
+            $result = Read-IntegerWithEscape -PromptText "robocopy_combo_threshold" -CurrentValue ([int]$config.robocopy_combo_threshold) -Min 100 -Max 500000
+            if (-not $result.Cancelled) {
+                $config.robocopy_combo_threshold = [int]$result.Value
                 Save-Config -Config $config
             }
         }

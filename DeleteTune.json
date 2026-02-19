@@ -2,7 +2,9 @@
   "debug_mode": false,
   "accelerator_enabled": true,
   "strategy_move_first": false,
+  "strategy_robocopy_combo": false,
   "accelerator_threshold": 2000,
+  "robocopy_combo_threshold": 5000,
   "selection_retry_count": 10,
   "selection_retry_delay_ms": 45,
   "large_selection_trust_threshold": 1000

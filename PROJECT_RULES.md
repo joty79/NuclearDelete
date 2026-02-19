@@ -259,6 +259,34 @@
 - Files affected: `NuclearDeleteFolder.ps1`, `DeleteTune.ps1`, `DeleteTune.json`, `PROJECT_RULES.md`.
 - Validation/tests: Parser validation OK (`NuclearDeleteFolder.ps1`, `DeleteTune.ps1`).
 
+### 2026-02-19 - Experimental Robocopy combo strategy for huge select-all file sets
+- Problem: Need a safer/faster path for very large file-only selections (for example ~9000 files) using robocopy move semantics plus Nuclear dropzone delete.
+- Root cause: Explorer `MoveHere` is async and can be timing-sensitive; direct delete path does not reuse robocopy's move-root fixes.
+- Guardrail: Add opt-in `strategy_robocopy_combo` with `robocopy_combo_threshold`; apply only to full top-level file selections in one source folder, keep keep-root marker + root-only transient leftover reconciliation, then nuke dropzone via existing delete pipeline; always fallback to existing flow on miss/failure.
+- Files affected: `NuclearDeleteFolder.ps1`, `DeleteTune.ps1`, `DeleteTune.json`, `PROJECT_RULES.md`.
+- Validation/tests: PowerShell parser validation required for `NuclearDeleteFolder.ps1` and `DeleteTune.ps1`; runtime benchmark/failure-path validation pending user run.
+
+### 2026-02-19 - Robocopy combo orchestration (trust path, no per-item COM loop)
+- Problem: Combo path showed ~6-7s overhead before robocopy transfer start on large selections.
+- Root cause: Heavy per-item COM traversal and full top-level comparison ran before robocopy (`foreach SelectedItems + Test-IsFullTopLevelFileSelection`).
+- Guardrail: Keep combo precheck count-only (selected count vs folder `Items().Count`) and hand off orchestration directly to robocopy; skip expensive per-item validation in combo path.
+- Files affected: `NuclearDeleteFolder.ps1`, `PROJECT_RULES.md`.
+- Validation/tests: PowerShell parser validation (`NuclearDeleteFolder.ps1: OK`); runtime timing validation pending user run.
+
+### 2026-02-19 - Move-first switched to Explorer bulk handoff
+- Problem: C# move-first implementation was significantly slower and caused heavy Explorer lag on large file sets.
+- Root cause: Per-item move loop still performed many file operations and did not leverage Explorer's native bulk move pipeline.
+- Guardrail: `strategy_move_first` now uses Explorer COM `MoveHere` on the raw selected-items collection; script then deletes only the same-volume dropzone and falls back to direct delete flow on failure.
+- Files affected: `NuclearDeleteFolder.ps1`, `DeleteTune.ps1`, `PROJECT_RULES.md`.
+- Validation/tests: PowerShell parser validation (`NuclearDeleteFolder.ps1`, `DeleteTune.ps1`).
+
+### 2026-02-19 - Explorer MoveHere false-success fix
+- Problem: Explorer bulk path could report success while no files were actually moved.
+- Root cause: `MoveHere` runs asynchronously; script attempted dropzone delete immediately and treated that as success.
+- Guardrail: Wait for concrete move evidence (`anchor` disappeared or dropzone has content) before success path; otherwise mark failure and fallback.
+- Files affected: `NuclearDeleteFolder.ps1`, `PROJECT_RULES.md`.
+- Validation/tests: PowerShell parser validation (`NuclearDeleteFolder.ps1`).
+
 ## Entry Template
 ### YYYY-MM-DD - Short decision title
 - Problem:
