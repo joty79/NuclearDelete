@@ -287,6 +287,20 @@
 - Files affected: `NuclearDeleteFolder.ps1`, `PROJECT_RULES.md`.
 - Validation/tests: PowerShell parser validation (`NuclearDeleteFolder.ps1`).
 
+### 2026-02-19 - Robocopy combo hard safety guards (drive root + folders + full verify)
+- Problem: Robocopy combo could report success on destructive edge cases (for example source `L:\`) and leave folders/items behind.
+- Root cause: Combo trust mode relied on count-only hint (`selected == folderItems`) and sample-only post verification.
+- Guardrail: Block combo on drive-root sources, block combo when selection contains directories, require full top-level file selection count match, and fail if any top-level item remains after dropzone delete.
+- Files affected: `NuclearDeleteFolder.ps1`, `PROJECT_RULES.md`.
+- Validation/tests: PowerShell parser validation (`NuclearDeleteFolder.ps1: OK`).
+
+### 2026-02-19 - Root-capable combo with files-only move and low-overhead precheck
+- Problem: Previous hard guards restored safety but added large preflight cost (~6s) and blocked valid root-folder file workloads.
+- Root cause: Per-item COM validation over thousands of selected items and drive-root hard block in combo path.
+- Guardrail: Keep combo trust-mode precheck cheap (count-based), switch robocopy transfer from `/MOVE` to `/MOV` (files-only), allow root paths again, and verify remaining top-level files only (not all items) after dropzone delete.
+- Files affected: `NuclearDeleteFolder.ps1`, `PROJECT_RULES.md`.
+- Validation/tests: PowerShell parser validation (`NuclearDeleteFolder.ps1: OK`); deployed runtime copy to `%LOCALAPPDATA%\NuclearDeleteContext\NuclearDeleteFolder.ps1`.
+
 ## Entry Template
 ### YYYY-MM-DD - Short decision title
 - Problem:

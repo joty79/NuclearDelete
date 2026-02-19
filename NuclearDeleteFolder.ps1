@@ -473,7 +473,7 @@ function Invoke-RobocopyMoveAllTopFiles {
         $SourceDirectory,
         $DestinationDirectory,
         "*",
-        "/MOVE",
+        "/MOV",
         "/IS",
         "/R:0",
         "/W:0",
@@ -552,6 +552,14 @@ function Try-RobocopyBulkScoopAndNuke {
         }
         Write-DebugLog ("Robocopy combo trust-mode selected={0} folderItems={1} count_check_ms={2}" -f $itemCount, $folderItemCount, $countCheckStageMs)
 
+        $topLevelFileCount = @(
+            Get-ChildItem -LiteralPath $sourceDirectory -File -Force -ErrorAction SilentlyContinue
+        ).Count
+        if ($topLevelFileCount -le 0 -or $itemCount -ne $topLevelFileCount) {
+            Write-DebugLog ("Robocopy combo blocked: not full top-level file selection selected={0} topLevelFiles={1}" -f $itemCount, $topLevelFileCount)
+            return (New-BulkResult -Used:$false -Success:$false -DropZone $null -Reason "NotFullTopLevelFileSelection")
+        }
+
         $dropRoot = [System.IO.Path]::GetPathRoot($firstPath)
         if ([string]::IsNullOrWhiteSpace($dropRoot)) {
             $dropRoot = Split-Path -Path $firstPath -Parent
@@ -622,6 +630,21 @@ function Try-RobocopyBulkScoopAndNuke {
             return (New-BulkResult -Used:$true -Success:$false -DropZone $dropZone -Reason ("DropZoneDeleteFailed_{0}" -f $cleanupExit))
         }
         $dropZone = $null
+
+        $remainingTopLevelFiles = @(
+            Get-ChildItem -LiteralPath $sourceDirectory -File -Force -ErrorAction SilentlyContinue |
+            Where-Object {
+                -not (
+                    $_.Name.StartsWith("__rcwm_keep_root_", [System.StringComparison]::OrdinalIgnoreCase) -and
+                    $_.Name.EndsWith(".tmp", [System.StringComparison]::OrdinalIgnoreCase)
+                )
+            }
+        ).Count
+        if ($remainingTopLevelFiles -gt 0) {
+            Write-DebugLog "Robocopy combo post-verify failed remainingTopLevelFiles=$remainingTopLevelFiles"
+            Write-DebugLog ("Robocopy combo timing totalMs={0} selection_validate_ms={1} transfer_ms={2} root_cleanup_ms={3} dropzone_delete_ms={4} sample_verify_ms={5}" -f $comboTimer.ElapsedMilliseconds, $selectionStageMs, $transferStageMs, $rootCleanupStageMs, $dropzoneDeleteStageMs, $sampleVerifyStageMs)
+            return (New-BulkResult -Used:$true -Success:$false -DropZone $null -Reason ("SourceStillHasTopLevelFiles_{0}" -f $remainingTopLevelFiles))
+        }
 
         $stageStartMs = $comboTimer.ElapsedMilliseconds
         $remainingSamples = 0
