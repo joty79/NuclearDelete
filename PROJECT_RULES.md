@@ -16,6 +16,13 @@
 - Prefer side-by-side experiments (for example, RoboCopy-based flow) instead of replacing the native path directly.
 
 ## Decision Log
+### 2026-02-19 - .NET delete fast path with safe fallback
+- Problem: `Remove-Item` per-target adds significant overhead on large multi-select deletes.
+- Root cause: Cmdlet/pipeline/provider overhead for each item.
+- Guardrail: Use `.NET` delete path (`System.IO.File/Directory`) with attribute clear (`ReadOnly/Hidden/System`) and fallback to `Remove-Item -Force`.
+- Files affected: `NuclearDeleteFolder.ps1`.
+- Validation/tests: PowerShell parser validation passed; runtime benchmark/locked-file tests pending.
+
 ### 2026-02-17 - Use dedicated app-local runtime state path
 - Problem: Runtime state folder appeared under `C:\Users\...\AppData\Local\MoveTo\NuclearDelete`, causing ownership confusion with MoveTo.
 - Root cause: `NuclearDeleteFolder.vbs` used `%LOCALAPPDATA%\MoveTo\NuclearDelete` as `stateRoot`.

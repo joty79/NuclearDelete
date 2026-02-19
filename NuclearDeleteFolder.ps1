@@ -141,6 +141,26 @@ function Resolve-Targets {
     return (Normalize-Targets -InputPaths @($AnySelectedPath))
 }
 
+function Clear-ForceAttributes {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    $attrs = [System.IO.File]::GetAttributes($Path)
+    $clearMask = [System.IO.FileAttributes]::ReadOnly `
+        -bor [System.IO.FileAttributes]::Hidden `
+        -bor [System.IO.FileAttributes]::System
+
+    if (($attrs -band $clearMask) -ne 0) {
+        $newAttrs = $attrs -band (-bnot $clearMask)
+        [System.IO.File]::SetAttributes($Path, $newAttrs)
+        $attrs = $newAttrs
+    }
+
+    return $attrs
+}
+
 function Invoke-DeleteBatch {
     param([string[]]$Targets)
 
@@ -149,20 +169,38 @@ function Invoke-DeleteBatch {
     }
 
     $hadError = $false
+
     foreach ($targetPath in $Targets) {
-        if (-not (Test-Path -LiteralPath $targetPath)) {
+        $isFile = [System.IO.File]::Exists($targetPath)
+        $isDir = [System.IO.Directory]::Exists($targetPath)
+
+        if (-not $isFile -and -not $isDir) {
             continue
         }
 
         try {
-            $targetItem = Get-Item -LiteralPath $targetPath -Force -ErrorAction Stop
-            if ($targetItem.PSIsContainer) {
-                Remove-Item -LiteralPath $targetPath -Recurse -Force -ErrorAction Stop
-            } else {
-                Remove-Item -LiteralPath $targetPath -Force -ErrorAction Stop
+            $attrs = Clear-ForceAttributes -Path $targetPath
+            $isDirectoryAttr = (($attrs -band [System.IO.FileAttributes]::Directory) -ne 0)
+
+            if ($isDir -or $isDirectoryAttr) {
+                [System.IO.Directory]::Delete($targetPath, $true)
             }
-        } catch {
-            $hadError = $true
+            else {
+                [System.IO.File]::Delete($targetPath)
+            }
+        }
+        catch {
+            try {
+                if (Test-Path -LiteralPath $targetPath -PathType Container) {
+                    Remove-Item -LiteralPath $targetPath -Recurse -Force -ErrorAction Stop
+                }
+                else {
+                    Remove-Item -LiteralPath $targetPath -Force -ErrorAction Stop
+                }
+            }
+            catch {
+                $hadError = $true
+            }
         }
     }
 
