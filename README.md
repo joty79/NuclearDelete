@@ -89,6 +89,10 @@ Use the installer (recommended):
 pwsh -NoProfile -ExecutionPolicy Bypass -File "D:\Users\joty79\scripts\NuclearDelete\Install.ps1"
 ```
 
+Installer menu:
+- `Install` and `Update` are separate actions.
+- In interactive mode, both allow GitHub branch selection (numbered list).
+
 Direct actions:
 
 ```powershell

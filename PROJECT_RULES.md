@@ -16,6 +16,13 @@
 - Prefer side-by-side experiments (for example, RoboCopy-based flow) instead of replacing the native path directly.
 
 ## Decision Log
+### 2026-02-19 - Installer parity with RoboCopy (Install/Update split + branch picker)
+- Problem: Nuclear installer had no separate Install/Update flow and no branch picker.
+- Root cause: Earlier minimal installer skipped GitHub package-source workflow.
+- Guardrail: Keep dedicated `Install` and `Update` menu entries, and for interactive runs select GitHub branch/ref via numbered list (same pattern as RoboCopy installer).
+- Files affected: `Install.ps1`, `README.md`.
+- Validation/tests: PowerShell parser validation (`Install.ps1: OK`), non-destructive action check (`-Action Exit`).
+
 ### 2026-02-19 - Add installer workflow + RoboTune-style DeleteTune UI
 - Problem: NuclearDelete lacked a consistent install/uninstall flow and DeleteTune visual style differed from RoboTune.
 - Root cause: Manual `.reg` import + hardcoded script paths caused friction and inconsistent UX.
