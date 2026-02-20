@@ -329,7 +329,9 @@ function Get-RegistryCleanupPaths {
         'HKCU\Software\Classes\Directory\ContextMenus\DeleteToOblivion',
         'HKCU\Software\Classes\Directory\shell\z_09_RecycleBinTools',
         'HKCU\Software\Classes\Directory\ContextMenus\RecycleBinTools',
+        'HKCU\Software\Classes\Directory\shell\z_99_RecycleBinTools',
         'HKCU\Software\Classes\Directory\Background\shell\z_09_RecycleBinTools',
+        'HKCU\Software\Classes\Directory\Background\shell\z_99_RecycleBinTools',
         'HKCU\Software\Classes\Directory\Background\ContextMenus\RecycleBinTools',
         'HKCU\Software\Classes\Directory\shell\NuclearDeleteFolder',
         'HKCR\AllFilesystemObjects\shell\z_10_DeleteToOblivion',
@@ -338,7 +340,9 @@ function Get-RegistryCleanupPaths {
         'HKCR\Directory\ContextMenus\DeleteToOblivion',
         'HKCR\Directory\shell\z_09_RecycleBinTools',
         'HKCR\Directory\ContextMenus\RecycleBinTools',
+        'HKCR\Directory\shell\z_99_RecycleBinTools',
         'HKCR\Directory\Background\shell\z_09_RecycleBinTools',
+        'HKCR\Directory\Background\shell\z_99_RecycleBinTools',
         'HKCR\Directory\Background\ContextMenus\RecycleBinTools',
         'HKCR\Directory\shell\NuclearDeleteFolder'
     )
@@ -392,10 +396,7 @@ function Register-NuclearContextMenu {
     $parentKey = 'HKCU\Software\Classes\AllFilesystemObjects\shell\z_10_DeleteToOblivion'
     $childKey = 'HKCU\Software\Classes\AllFilesystemObjects\ContextMenus\DeleteToOblivion\shell\run'
     $commandKey = 'HKCU\Software\Classes\AllFilesystemObjects\ContextMenus\DeleteToOblivion\shell\run\command'
-    $recycleDirParentKey = 'HKCU\Software\Classes\Directory\shell\z_09_RecycleBinTools'
-    $recycleDirChildKey = 'HKCU\Software\Classes\Directory\ContextMenus\RecycleBinTools\shell\run'
-    $recycleDirCommandKey = 'HKCU\Software\Classes\Directory\ContextMenus\RecycleBinTools\shell\run\command'
-    $recycleBgParentKey = 'HKCU\Software\Classes\Directory\Background\shell\z_09_RecycleBinTools'
+    $recycleBgParentKey = 'HKCU\Software\Classes\Directory\Background\shell\z_99_RecycleBinTools'
     $recycleBgChildKey = 'HKCU\Software\Classes\Directory\Background\ContextMenus\RecycleBinTools\shell\run'
     $recycleBgCommandKey = 'HKCU\Software\Classes\Directory\Background\ContextMenus\RecycleBinTools\shell\run\command'
 
@@ -408,15 +409,6 @@ function Register-NuclearContextMenu {
     Add-RegStringValue -Key $childKey -Name 'Icon' -Value $iconPathEscaped
     Add-RegStringValue -Key $childKey -Name 'MultiSelectModel' -Value 'Document'
     Add-RegDefaultValue -Key $commandKey -Value $commandValue
-
-    Add-RegStringValue -Key $recycleDirParentKey -Name 'MUIVerb' -Value 'Recycle Bin'
-    Add-RegStringValue -Key $recycleDirParentKey -Name 'Icon' -Value $iconPathEscaped
-    Add-RegStringValue -Key $recycleDirParentKey -Name 'Position' -Value 'Bottom'
-    Add-RegStringValue -Key $recycleDirParentKey -Name 'SeparatorBefore' -Value ''
-    Add-RegStringValue -Key $recycleDirParentKey -Name 'ExtendedSubCommandsKey' -Value 'Directory\ContextMenus\RecycleBinTools'
-    Add-RegStringValue -Key $recycleDirChildKey -Name 'MUIVerb' -Value 'Empty Recycle Bin (All Volumes)'
-    Add-RegStringValue -Key $recycleDirChildKey -Name 'Icon' -Value $iconPathEscaped
-    Add-RegDefaultValue -Key $recycleDirCommandKey -Value $recycleCommandValue
 
     Add-RegStringValue -Key $recycleBgParentKey -Name 'MUIVerb' -Value 'Recycle Bin'
     Add-RegStringValue -Key $recycleBgParentKey -Name 'Icon' -Value $iconPathEscaped

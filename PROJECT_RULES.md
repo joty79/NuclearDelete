@@ -16,6 +16,13 @@
 - Prefer side-by-side experiments (for example, RoboCopy-based flow) instead of replacing the native path directly.
 
 ## Decision Log
+### 2026-02-20 - Keep Recycle Bin submenu only on desktop background
+- Problem: Recycle Bin submenu appeared in both folder context menu and desktop background, causing duplicate UI and misclick risk.
+- Root cause: Registry layout included `Directory\shell\...RecycleBinTools` in addition to `Directory\Background\shell\...`.
+- Guardrail: Register recycle cleanup submenu only under `Directory\Background`; keep folder context focused on file/folder operations.
+- Files affected: `Install.ps1`, `NuclearDeleteFolder.reg`.
+- Validation/tests: PowerShell parser validation (`Install.ps1`) and registry key layout review.
+
 ### 2026-02-20 - Add fast recycle-bin cleanup action in Delete to Oblivion submenu
 - Problem: Users needed one-click, fast recycle-bin cleanup across all local volumes from the same NuclearDelete submenu.
 - Root cause: Existing submenu only exposed permanent delete action and no recycle-bin purge helper.
