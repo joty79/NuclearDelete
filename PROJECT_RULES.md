@@ -1,180 +1,17 @@
-# PROJECT_RULES.md (MoveTo)
+# PROJECT_RULES.md (NuclearDelete)
 
 ## Scope
-- This file stores MoveTo-specific decisions, guardrails, and critical lessons.
+- This file stores NuclearDelete-specific decisions, guardrails, and critical lessons.
 - Keep entries concise and actionable.
-
-## Non-Negotiable Rules
-- For registry paths that include `*`, use `Registry::HKEY_CURRENT_USER\...` (not `HKCU:\...`).
-- Do not run `Test-Path` or `Get-ChildItem` on `HKCU:\...*\...` paths.
-- For dynamic context-menu destinations, use nested shell keys (`shell\dest_*`), not empty `SubCommands=""`.
-- Keep `SyncMoveToMenu.ps1` as the source-of-truth sync step between `destinations\*.lnk` and registry entries.
-- For RoboCopy engine, use adaptive `/MT` tuning by source/destination media path; do not hardcode one value globally.
-
-## Current Stability Policy
-- Treat the native engine (`MoveTo.vbs` + `MoveTo.exe`) as stable and high-risk to modify.
-- Prefer side-by-side experiments (for example, RoboCopy-based flow) instead of replacing the native path directly.
+- Do not move MoveTo/Robocopy-only items here.
 
 ## Decision Log
-### 2026-02-20 - Recycle cleanup invoked via hidden VBS launcher
-- Problem: Recycle cleanup action produced a visible flash when launched from desktop background menu.
-- Root cause: Registry command invoked PowerShell directly.
-- Guardrail: Invoke recycle cleanup through `wscript.exe` + `EmptyRecycleBinFast.vbs` (hidden), then launch the PowerShell cleanup script from VBS.
-- Files affected: `Install.ps1`, `NuclearDeleteFolder.reg`, `EmptyRecycleBinFast.vbs`.
-- Validation/tests: PowerShell parser validation (`Install.ps1`) and registry command path review.
-
-### 2026-02-20 - Background recycle menu separator tuning
-- Problem: Desktop background `Recycle Bin` cascade showed separator above but not below in Explorer.
-- Root cause: `Position=Bottom` with `CommandFlags=0x60` on this background shell key caused inconsistent separator rendering.
-- Guardrail: For `Directory\Background\shell\z_99_RecycleBinTools`, do not set `Position`; use `CommandFlags=0x20` only.
-- Files affected: `Install.ps1`, `NuclearDeleteFolder.reg`.
-- Validation/tests: PowerShell parser validation (`Install.ps1`) and registry value check.
-
-### 2026-02-20 - Background recycle menu uses CommandFlags separators
-- Problem: Desktop background `Recycle Bin` menu showed separator before but not after.
-- Root cause: `SeparatorBefore` string behavior was inconsistent for this cascade entry in Explorer.
-- Guardrail: For static submenu separators, use `CommandFlags` (`0x20` before, `0x40` after). Applied `0x60` for both.
-- Files affected: `Install.ps1`, `NuclearDeleteFolder.reg`.
-- Validation/tests: PowerShell parser validation (`Install.ps1`) and registry value review (`CommandFlags=0x60`).
-
-### 2026-02-20 - Keep Recycle Bin submenu only on desktop background
-- Problem: Recycle Bin submenu appeared in both folder context menu and desktop background, causing duplicate UI and misclick risk.
-- Root cause: Registry layout included `Directory\shell\...RecycleBinTools` in addition to `Directory\Background\shell\...`.
-- Guardrail: Register recycle cleanup submenu only under `Directory\Background`; keep folder context focused on file/folder operations.
-- Files affected: `Install.ps1`, `NuclearDeleteFolder.reg`.
-- Validation/tests: PowerShell parser validation (`Install.ps1`) and registry key layout review.
-
-### 2026-02-20 - Add fast recycle-bin cleanup action in Delete to Oblivion submenu
-- Problem: Users needed one-click, fast recycle-bin cleanup across all local volumes from the same NuclearDelete submenu.
-- Root cause: Existing submenu only exposed permanent delete action and no recycle-bin purge helper.
-- Guardrail: Keep recycle cleanup path simple and fast: enumerate local drive letters and run `cmd /c rd /s /q X:\$Recycle.Bin` per volume (single pass).
-- Files affected: `Install.ps1`, `EmptyRecycleBinFast.ps1`, `PROJECT_RULES.md`.
-- Validation/tests: PowerShell parser validation (`Install.ps1`, `EmptyRecycleBinFast.ps1`) passed.
-
-### 2026-02-20 - Installer self-elevation parity for install/update/uninstall
-- Problem: NuclearDelete installer actions could run non-elevated, causing inconsistent registry cleanup/write-through behavior across machines.
-- Root cause: `Install.ps1` had no self-elevation path (`RunAs`) for install/update/uninstall actions.
-- Guardrail: `Install.ps1` must enforce elevation via self-relaunch (`pwsh.exe -Verb RunAs`) when action requires registry modifications.
-- Files affected: `Install.ps1`, `PROJECT_RULES.md`.
-- Validation/tests: PowerShell parser validation (`Install.ps1: OK`), static check for elevation hooks in all action branches.
-
-### 2026-02-19 - Consolidate runtime state under NuclearDeleteContext
-- Problem: Runtime created a second appdata folder (`%LOCALAPPDATA%\NuclearDelete`) while installer/runtime files live under `%LOCALAPPDATA%\NuclearDeleteContext`.
-- Root cause: `NuclearDeleteFolder.ps1`, `DeleteTune.ps1`, and `NuclearDeleteFolder.vbs` used `NuclearDelete` as `stateRoot`.
-- Guardrail: Use `%LOCALAPPDATA%\NuclearDeleteContext` as the single runtime state namespace (config, debug log, worker lock).
-- Files affected: `NuclearDeleteFolder.ps1`, `DeleteTune.ps1`, `NuclearDeleteFolder.vbs`, `README.md`.
-- Validation/tests: PowerShell parser validation (`NuclearDeleteFolder.ps1`, `DeleteTune.ps1`) and VBS syntax check.
-
-### 2026-02-19 - Installer parity with RoboCopy (Install/Update split + branch picker)
-- Problem: Nuclear installer had no separate Install/Update flow and no branch picker.
-- Root cause: Earlier minimal installer skipped GitHub package-source workflow.
-- Guardrail: Keep dedicated `Install` and `Update` menu entries, and for interactive runs select GitHub branch/ref via numbered list (same pattern as RoboCopy installer).
-- Files affected: `Install.ps1`, `README.md`.
-- Validation/tests: PowerShell parser validation (`Install.ps1: OK`), non-destructive action check (`-Action Exit`).
-
-### 2026-02-20 - Unified custom nuke icon for NuclearDelete and Recycle Bin menus
-- Problem: Menu icons were mixed (`imageres/shell32`) and not visually consistent across NuclearDelete and Recycle Bin actions.
-- Root cause: Registry icon values were hardcoded to system icon resources in both installer and `.reg` layout.
-- Guardrail: Use one shared icon asset (`.assets\nuke.ico`) for both parent and child menu items (Delete to Oblivion + Recycle Bin).
-- Files affected: `Install.ps1`, `NuclearDeleteFolder.reg`, `.assets/nuke.ico`.
-- Validation/tests: PowerShell parser validation (`Install.ps1`) and file existence check for `.assets\nuke.ico`.
-
-### 2026-02-20 - Separate Recycle Bin submenu for folder/background
-- Problem: Putting recycle cleanup inside `Delete to Oblivion` submenu increased misclick risk during permanent-delete usage.
-- Root cause: Recycle action and permanent-delete action shared the same `AllFilesystemObjects` submenu.
-- Guardrail: Keep `Delete to Oblivion` for permanent delete only; expose recycle cleanup via separate `Recycle Bin` cascade submenu under `Directory` and `Directory\Background`.
-- Files affected: `Install.ps1`, `NuclearDeleteFolder.reg`, `EmptyRecycleBinFast.ps1`.
-- Validation/tests: PowerShell parser validation (`Install.ps1`, `EmptyRecycleBinFast.ps1`) and registry structure review.
-
-### 2026-02-19 - Add installer workflow + RoboTune-style DeleteTune UI
-- Problem: NuclearDelete lacked a consistent install/uninstall flow and DeleteTune visual style differed from RoboTune.
-- Root cause: Manual `.reg` import + hardcoded script paths caused friction and inconsistent UX.
-- Guardrail: Use `Install.ps1` as canonical installer (copy to `%LOCALAPPDATA%\NuclearDeleteContext`, rewrite VBS script path, register context menu via `reg.exe`), and keep DeleteTune menu visual pattern aligned with RoboTune.
-- Files affected: `Install.ps1`, `DeleteTune.ps1`, `README.md`.
-- Validation/tests: Parser validation for `Install.ps1` and `DeleteTune.ps1`; non-destructive load test for installer action parsing.
-
-### 2026-02-19 - DeleteTune + conditional C# accelerator (safe hybrid)
-- Problem: Needed faster large-batch delete path plus runtime tuning controls (debug/threshold/retry) without editing core script every time.
-- Root cause: Previous PowerShell-only parallel attempts were unstable; no dedicated tune surface existed.
-- Guardrail: Keep resolver/mutex/fallback semantics intact; use optional C# accelerator only when enabled and target count passes threshold; keep PowerShell baseline + robust `Remove-Item` fallback.
-- Files affected: `NuclearDeleteFolder.ps1`, `DeleteTune.ps1`, `DeleteTune.json`, `README.md`.
-- Validation/tests: PowerShell parser validation passed for `NuclearDeleteFolder.ps1` and `DeleteTune.ps1`; `DeleteTune.ps1 -ShowPathOnly` returned appdata config path; runtime smoke delete blocked by execution policy wrapper in this environment.
-
-### 2026-02-19 - High-throughput selection+delete runtime (latest test branch)
-- Problem: Runtime stayed around ~9s for ~9000 files after delete-loop-only tuning.
-- Root cause: Main bottleneck shifted to selection resolution overhead (COM reads/retries), not just delete syscall path.
-- Guardrail: On `latest`, adopt the faster runtime variant (`NuclearDeleteFolder_2` logic) with race-safe delete behavior and keep fallback for locked/ACL cases.
-- Files affected: `NuclearDeleteFolder.ps1`.
-- Validation/tests: Parser check passed; user runtime test ~5-6s for ~9000 files.
-
-### 2026-02-19 - .NET delete fast path with safe fallback
-- Problem: `Remove-Item` per-target adds significant overhead on large multi-select deletes.
-- Root cause: Cmdlet/pipeline/provider overhead for each item.
-- Guardrail: Use `.NET` delete path (`System.IO.File/Directory`) with attribute clear (`ReadOnly/Hidden/System`) and fallback to `Remove-Item -Force`.
-- Files affected: `NuclearDeleteFolder.ps1`.
-- Validation/tests: PowerShell parser validation passed; runtime benchmark/locked-file tests pending.
-
-### 2026-02-17 - Use dedicated app-local runtime state path
-- Problem: Runtime state folder appeared under `C:\Users\...\AppData\Local\MoveTo\NuclearDelete`, causing ownership confusion with MoveTo.
-- Root cause: `NuclearDeleteFolder.vbs` used `%LOCALAPPDATA%\MoveTo\NuclearDelete` as `stateRoot`.
-- Guardrail: NuclearDelete must use `%LOCALAPPDATA%\NuclearDelete` as standalone namespace.
-- Files affected: `NuclearDeleteFolder.vbs`.
-- Validation/tests: Static code review completed; runtime verification pending by user.
-
-### 2026-02-11 - Adaptive RoboCopy thread rule
-- Problem: Fixed `/MT:32` is fast on NVMe but can underperform on HDD or same-drive copies.
-- Root cause: Storage bottlenecks vary by media type and path topology.
-- Guardrail: Choose `/MT` adaptively (`8` for HDD/network/same-physical-disk, `32` for SSD->SSD, `16` fallback).
-- Files affected: `Robocopy/rcp.ps1`, `Robocopy/README.md`.
-- Validation/tests: Use `__mtprobe` mode with representative source/destination paths.
-
-### 2026-02-11 - RoboCopy benchmark and tuning controls
-- Problem: Needed real-time speed visibility and manual MT tuning per partition route.
-- Root cause: Performance depends on source/destination topology and workload shape.
-- Guardrail: Use explicit `benchmark_mode` toggle; when ON keep paste window open with hotkey to `RoboTune.ps1`, when OFF close normally.
-- Files affected: `Robocopy/rcp.ps1`, `Robocopy/RoboTune.ps1`, `Robocopy/README.md`.
-- Validation/tests: Parse check + `__mtprobe` + interactive config load.
-
-### 2026-02-10 - Registry wildcard path fix
-- Problem: Context menu scripts could hang/fail when using registry paths with `*` under `HKCU:\`.
-- Root cause: `*` interpreted as wildcard by PowerShell provider.
-- Guardrail: Always use `Registry::HKEY_CURRENT_USER\...` for these paths.
-- Files affected historically: `SyncMoveToMenu.ps1`, `MoveTo.reg`, `AddMoveToDestination.ps1`.
-
-### 2026-02-11 - Conda shell initialization note
-- Problem: `conda` command may be unavailable in some PowerShell sessions.
-- Root cause: Shell PATH/profile may not load Conda shims in every terminal context.
-- Guardrail: Use `E:\Compilers\miniconda\condabin\conda.bat` when plain `conda` is not recognized.
-- Files affected: `AGENTS.md` (environment note).
-- Validation/tests: `conda env list` succeeded via explicit `conda.bat` path.
-
 ### 2026-02-11 - RoboDelete baseline strategy
 - Problem: Need fast permanent-delete tests for large folder workloads.
 - Root cause: Explorer + Recycle Bin path is too slow for high file-count delete scenarios.
 - Guardrail: Keep imported `robodelete.bat` as reference, and use `robodelete_fast.bat` as baseline test runner with summary/log.
 - Files affected: `Robocopy/robodelete_fast.bat`, `Robocopy/README.md`.
 - Validation/tests: Batch parse/read verification in workspace.
-
-### 2026-02-11 - RoboDelete folder context menu
-- Problem: Need one-click folder test entry from Explorer for permanent delete speed checks.
-- Root cause: Manual drag/drop batch flow is slower to trigger repeatedly during benchmarks.
-- Guardrail: Use folder-only context menu entry pointing to `robodelete_fast.bat` via VBS wrapper.
-- Files affected: `Robocopy/RoboDelete_Folder.vbs`, `Robocopy/RoboDelete_Folder.reg`, `Robocopy/README.md`.
-- Validation/tests: VBS syntax check (`cscript //nologo`) + file content verification.
-
-### 2026-02-11 - RoboDelete MT and speed profile
-- Problem: Needed explicit robocopy multi-thread tuning for delete benchmarks.
-- Root cause: Baseline batch lacked `/MT` control.
-- Guardrail: Default `robodelete_fast.bat` folder profile uses `/MT:64` plus `/R:0 /W:0 /NFL /NDL /NJH /NJS /NP /XJ`; allow override via `ROBODELETE_MT`.
-- Files affected: `Robocopy/robodelete_fast.bat`, `Robocopy/README.md`.
-- Validation/tests: Local temp-folder run with `ROBODELETE_MT=64` and summary/log verification.
-
-### 2026-02-11 - RoboDelete low-overhead testing mode
-- Problem: Benchmark view/progress output can distort delete-speed measurements.
-- Root cause: Console progress rendering (`/ETA` and verbose output) adds non-trivial overhead in some workloads.
-- Guardrail: Add `ROBODELETE_TEST` mode; default `1` sets silent fast profile + hold window for summary, with elapsed time as primary metric and minimal summary fields.
-- Files affected: `Robocopy/robodelete_fast.bat`, `Robocopy/README.md`.
-- Validation/tests: Batch parse/flow verification and config echo/log field checks for `TEST/VISUAL/HOLD`.
 
 ### 2026-02-11 - Nuclear delete hold-on-exit for testing
 - Problem: Nuclear delete window could close too quickly after completion during benchmark checks.
@@ -295,6 +132,104 @@
 - Files affected: `NuclearDelete/NuclearDeleteFolder.ps1`, `NuclearDelete/NuclearDeleteFolder.vbs`.
 - Validation/tests: PowerShell parse check + direct delete test (`direct_deleted`) + VBS launch probe (`pwsh_started`, `file_deleted`).
 
+### 2026-02-20 - Recycle cleanup invoked via hidden VBS launcher
+- Problem: Recycle cleanup action produced a visible flash when launched from desktop background menu.
+- Root cause: Registry command invoked PowerShell directly.
+- Guardrail: Invoke recycle cleanup through `wscript.exe` + `EmptyRecycleBinFast.vbs` (hidden), then launch the PowerShell cleanup script from VBS.
+- Files affected: `Install.ps1`, `NuclearDeleteFolder.reg`, `EmptyRecycleBinFast.vbs`.
+- Validation/tests: PowerShell parser validation (`Install.ps1`) and registry command path review.
+
+### 2026-02-20 - Background recycle menu separator tuning
+- Problem: Desktop background `Recycle Bin` cascade showed separator above but not below in Explorer.
+- Root cause: `Position=Bottom` with `CommandFlags=0x60` on this background shell key caused inconsistent separator rendering.
+- Guardrail: For `Directory\Background\shell\z_99_RecycleBinTools`, do not set `Position`; use `CommandFlags=0x20` only.
+- Files affected: `Install.ps1`, `NuclearDeleteFolder.reg`.
+- Validation/tests: PowerShell parser validation (`Install.ps1`) and registry value check.
+
+### 2026-02-20 - Background recycle menu uses CommandFlags separators
+- Problem: Desktop background `Recycle Bin` menu showed separator before but not after.
+- Root cause: `SeparatorBefore` string behavior was inconsistent for this cascade entry in Explorer.
+- Guardrail: For static submenu separators, use `CommandFlags` (`0x20` before, `0x40` after). Applied `0x60` for both.
+- Files affected: `Install.ps1`, `NuclearDeleteFolder.reg`.
+- Validation/tests: PowerShell parser validation (`Install.ps1`) and registry value review (`CommandFlags=0x60`).
+
+### 2026-02-20 - Keep Recycle Bin submenu only on desktop background
+- Problem: Recycle Bin submenu appeared in both folder context menu and desktop background, causing duplicate UI and misclick risk.
+- Root cause: Registry layout included `Directory\shell\...RecycleBinTools` in addition to `Directory\Background\shell\...`.
+- Guardrail: Register recycle cleanup submenu only under `Directory\Background`; keep folder context focused on file/folder operations.
+- Files affected: `Install.ps1`, `NuclearDeleteFolder.reg`.
+- Validation/tests: PowerShell parser validation (`Install.ps1`) and registry key layout review.
+
+### 2026-02-20 - Add fast recycle-bin cleanup action in Delete to Oblivion submenu
+- Problem: Users needed one-click, fast recycle-bin cleanup across all local volumes from the same NuclearDelete submenu.
+- Root cause: Existing submenu only exposed permanent delete action and no recycle-bin purge helper.
+- Guardrail: Keep recycle cleanup path simple and fast: enumerate local drive letters and run `cmd /c rd /s /q X:\$Recycle.Bin` per volume (single pass).
+- Files affected: `Install.ps1`, `EmptyRecycleBinFast.ps1`, `PROJECT_RULES.md`.
+- Validation/tests: PowerShell parser validation (`Install.ps1`, `EmptyRecycleBinFast.ps1`) passed.
+
+### 2026-02-20 - Installer self-elevation parity for install/update/uninstall
+- Problem: NuclearDelete installer actions could run non-elevated, causing inconsistent registry cleanup/write-through behavior across machines.
+- Root cause: `Install.ps1` had no self-elevation path (`RunAs`) for install/update/uninstall actions.
+- Guardrail: `Install.ps1` must enforce elevation via self-relaunch (`pwsh.exe -Verb RunAs`) when action requires registry modifications.
+- Files affected: `Install.ps1`, `PROJECT_RULES.md`.
+- Validation/tests: PowerShell parser validation (`Install.ps1: OK`), static check for elevation hooks in all action branches.
+
+### 2026-02-19 - Consolidate runtime state under NuclearDeleteContext
+- Problem: Runtime created a second appdata folder (`%LOCALAPPDATA%\NuclearDelete`) while installer/runtime files live under `%LOCALAPPDATA%\NuclearDeleteContext`.
+- Root cause: `NuclearDeleteFolder.ps1`, `DeleteTune.ps1`, and `NuclearDeleteFolder.vbs` used `NuclearDelete` as `stateRoot`.
+- Guardrail: Use `%LOCALAPPDATA%\NuclearDeleteContext` as the single runtime state namespace (config, debug log, worker lock).
+- Files affected: `NuclearDeleteFolder.ps1`, `DeleteTune.ps1`, `NuclearDeleteFolder.vbs`, `README.md`.
+- Validation/tests: PowerShell parser validation (`NuclearDeleteFolder.ps1`, `DeleteTune.ps1`) and VBS syntax check.
+
+### 2026-02-20 - Unified custom nuke icon for NuclearDelete and Recycle Bin menus
+- Problem: Menu icons were mixed (`imageres/shell32`) and not visually consistent across NuclearDelete and Recycle Bin actions.
+- Root cause: Registry icon values were hardcoded to system icon resources in both installer and `.reg` layout.
+- Guardrail: Use one shared icon asset (`.assets\nuke.ico`) for both parent and child menu items (Delete to Oblivion + Recycle Bin).
+- Files affected: `Install.ps1`, `NuclearDeleteFolder.reg`, `.assets/nuke.ico`.
+- Validation/tests: PowerShell parser validation (`Install.ps1`) and file existence check for `.assets\nuke.ico`.
+
+### 2026-02-20 - Separate Recycle Bin submenu for folder/background
+- Problem: Putting recycle cleanup inside `Delete to Oblivion` submenu increased misclick risk during permanent-delete usage.
+- Root cause: Recycle action and permanent-delete action shared the same `AllFilesystemObjects` submenu.
+- Guardrail: Keep `Delete to Oblivion` for permanent delete only; expose recycle cleanup via separate `Recycle Bin` cascade submenu under `Directory` and `Directory\Background`.
+- Files affected: `Install.ps1`, `NuclearDeleteFolder.reg`, `EmptyRecycleBinFast.ps1`.
+- Validation/tests: PowerShell parser validation (`Install.ps1`, `EmptyRecycleBinFast.ps1`) and registry structure review.
+
+### 2026-02-19 - Add installer workflow + RoboTune-style DeleteTune UI
+- Problem: NuclearDelete lacked a consistent install/uninstall flow and DeleteTune visual style differed from RoboTune.
+- Root cause: Manual `.reg` import + hardcoded script paths caused friction and inconsistent UX.
+- Guardrail: Use `Install.ps1` as canonical installer (copy to `%LOCALAPPDATA%\NuclearDeleteContext`, rewrite VBS script path, register context menu via `reg.exe`), and keep DeleteTune menu visual pattern aligned with RoboTune.
+- Files affected: `Install.ps1`, `DeleteTune.ps1`, `README.md`.
+- Validation/tests: Parser validation for `Install.ps1` and `DeleteTune.ps1`; non-destructive load test for installer action parsing.
+
+### 2026-02-19 - DeleteTune + conditional C# accelerator (safe hybrid)
+- Problem: Needed faster large-batch delete path plus runtime tuning controls (debug/threshold/retry) without editing core script every time.
+- Root cause: Previous PowerShell-only parallel attempts were unstable; no dedicated tune surface existed.
+- Guardrail: Keep resolver/mutex/fallback semantics intact; use optional C# accelerator only when enabled and target count passes threshold; keep PowerShell baseline + robust `Remove-Item` fallback.
+- Files affected: `NuclearDeleteFolder.ps1`, `DeleteTune.ps1`, `DeleteTune.json`, `README.md`.
+- Validation/tests: PowerShell parser validation passed for `NuclearDeleteFolder.ps1` and `DeleteTune.ps1`; `DeleteTune.ps1 -ShowPathOnly` returned appdata config path; runtime smoke delete blocked by execution policy wrapper in this environment.
+
+### 2026-02-19 - High-throughput selection+delete runtime (latest test branch)
+- Problem: Runtime stayed around ~9s for ~9000 files after delete-loop-only tuning.
+- Root cause: Main bottleneck shifted to selection resolution overhead (COM reads/retries), not just delete syscall path.
+- Guardrail: On `latest`, adopt the faster runtime variant (`NuclearDeleteFolder_2` logic) with race-safe delete behavior and keep fallback for locked/ACL cases.
+- Files affected: `NuclearDeleteFolder.ps1`.
+- Validation/tests: Parser check passed; user runtime test ~5-6s for ~9000 files.
+
+### 2026-02-19 - .NET delete fast path with safe fallback
+- Problem: `Remove-Item` per-target adds significant overhead on large multi-select deletes.
+- Root cause: Cmdlet/pipeline/provider overhead for each item.
+- Guardrail: Use `.NET` delete path (`System.IO.File/Directory`) with attribute clear (`ReadOnly/Hidden/System`) and fallback to `Remove-Item -Force`.
+- Files affected: `NuclearDeleteFolder.ps1`.
+- Validation/tests: PowerShell parser validation passed; runtime benchmark/locked-file tests pending.
+
+### 2026-02-17 - Use dedicated app-local runtime state path
+- Problem: Runtime state folder appeared under `C:\Users\...\AppData\Local\MoveTo\NuclearDelete`, causing ownership confusion with MoveTo.
+- Root cause: `NuclearDeleteFolder.vbs` used `%LOCALAPPDATA%\MoveTo\NuclearDelete` as `stateRoot`.
+- Guardrail: NuclearDelete must use `%LOCALAPPDATA%\NuclearDelete` as standalone namespace.
+- Files affected: `NuclearDeleteFolder.vbs`.
+- Validation/tests: Static code review completed; runtime verification pending by user.
+
 ### 2026-02-13 - Selection resolver optimization (v3-style heuristics)
 - Problem: Large multi-select delete could still miss/under-read `SelectedItems()` in early reads or pay unnecessary retry latency.
 - Root cause: Resolver returned first non-empty read without stability checks and used only 3 retries with 200ms delay.
@@ -309,9 +244,23 @@
 - Validation/tests: PowerShell parser validation (`NuclearDeleteFolder.ps1: OK`).
 
 ## Entry Template
+
+## Entry Template
+
+### 2026-02-19 - Installer parity with RoboCopy (Install/Update split + branch picker)
+- Problem: Nuclear installer had no separate Install/Update flow and no branch picker.
+- Root cause: Earlier minimal installer skipped GitHub package-source workflow.
+- Guardrail: Keep dedicated `Install` and `Update` menu entries, and for interactive runs select GitHub branch/ref via numbered list (same pattern as RoboCopy installer).
+- Files affected: `Install.ps1`, `README.md`.
+- Validation/tests: PowerShell parser validation (`Install.ps1: OK`), non-destructive action check (`-Action Exit`).
+
+## Entry Template
+
+## Entry Template
 ### YYYY-MM-DD - Short decision title
 - Problem:
 - Root cause:
 - Guardrail/rule:
 - Files affected:
 - Validation/tests:
+
