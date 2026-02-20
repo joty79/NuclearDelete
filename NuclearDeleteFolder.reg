@@ -34,7 +34,7 @@ Windows Registry Editor Version 5.00
 "MUIVerb"="Recycle Bin"
 "Icon"="D:\\Users\\joty79\\scripts\\NuclearDelete\\.assets\\nuke.ico"
 "Position"="Bottom"
-"SeparatorBefore"=""
+"CommandFlags"=dword:00000060
 "ExtendedSubCommandsKey"="Directory\\Background\\ContextMenus\\RecycleBinTools"
 
 [HKEY_CURRENT_USER\Software\Classes\Directory\Background\ContextMenus\RecycleBinTools\shell\run]

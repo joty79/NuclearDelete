@@ -316,6 +316,15 @@ function Add-RegDefaultValue {
     Invoke-RegCommand -Arguments @('add', $Key, '/ve', '/t', 'REG_SZ', '/d', $safeValue, '/f') | Out-Null
 }
 
+function Add-RegDwordValue {
+    param(
+        [Parameter(Mandatory)][string]$Key,
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][int]$Value
+    )
+    Invoke-RegCommand -Arguments @('add', $Key, '/v', $Name, '/t', 'REG_DWORD', '/d', ('0x{0:X8}' -f $Value), '/f') | Out-Null
+}
+
 function Remove-RegTree {
     param([Parameter(Mandatory)][string]$Key)
     Invoke-RegCommand -Arguments @('delete', $Key, '/f') -IgnoreNotFound | Out-Null
@@ -413,7 +422,7 @@ function Register-NuclearContextMenu {
     Add-RegStringValue -Key $recycleBgParentKey -Name 'MUIVerb' -Value 'Recycle Bin'
     Add-RegStringValue -Key $recycleBgParentKey -Name 'Icon' -Value $iconPathEscaped
     Add-RegStringValue -Key $recycleBgParentKey -Name 'Position' -Value 'Bottom'
-    Add-RegStringValue -Key $recycleBgParentKey -Name 'SeparatorBefore' -Value ''
+    Add-RegDwordValue -Key $recycleBgParentKey -Name 'CommandFlags' -Value 0x60
     Add-RegStringValue -Key $recycleBgParentKey -Name 'ExtendedSubCommandsKey' -Value 'Directory\Background\ContextMenus\RecycleBinTools'
     Add-RegStringValue -Key $recycleBgChildKey -Name 'MUIVerb' -Value 'Empty Recycle Bin (All Volumes)'
     Add-RegStringValue -Key $recycleBgChildKey -Name 'Icon' -Value $iconPathEscaped

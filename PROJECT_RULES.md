@@ -16,6 +16,13 @@
 - Prefer side-by-side experiments (for example, RoboCopy-based flow) instead of replacing the native path directly.
 
 ## Decision Log
+### 2026-02-20 - Background recycle menu uses CommandFlags separators
+- Problem: Desktop background `Recycle Bin` menu showed separator before but not after.
+- Root cause: `SeparatorBefore` string behavior was inconsistent for this cascade entry in Explorer.
+- Guardrail: For static submenu separators, use `CommandFlags` (`0x20` before, `0x40` after). Applied `0x60` for both.
+- Files affected: `Install.ps1`, `NuclearDeleteFolder.reg`.
+- Validation/tests: PowerShell parser validation (`Install.ps1`) and registry value review (`CommandFlags=0x60`).
+
 ### 2026-02-20 - Keep Recycle Bin submenu only on desktop background
 - Problem: Recycle Bin submenu appeared in both folder context menu and desktop background, causing duplicate UI and misclick risk.
 - Root cause: Registry layout included `Directory\shell\...RecycleBinTools` in addition to `Directory\Background\shell\...`.
