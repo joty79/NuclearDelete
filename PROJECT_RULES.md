@@ -16,6 +16,41 @@
 - Prefer side-by-side experiments (for example, RoboCopy-based flow) instead of replacing the native path directly.
 
 ## Decision Log
+### 2026-02-19 - Prefer C# accelerator for guarded combo-snapshot partial deletes
+- Problem: Partial deletes around ~1900 files could be slower than full 8k combo deletes because they fell back to PowerShell baseline when `accelerator_threshold` was set to 2000.
+- Root cause: Threshold-only accelerator gating ignored guarded combo-snapshot context, so partial runs used slower per-item PowerShell deletes.
+- Guardrail: In standard fallback path, when targets come from combo-stage guarded snapshot (or expected-count guard mode), prefer C# accelerator for counts >= 100 even if below configured threshold.
+- Files affected: `NuclearDeleteFolder.ps1`.
+- Validation/tests: PowerShell parser validation passed; runtime verification pending by user logs.
+
+### 2026-02-19 - Use combo-stage selection snapshot for partial fallback
+- Problem: Partial deletes could do nothing (`Resolved targets count=0`) because fallback re-read from Explorer returned inflated all-items counts and was rejected by fail-closed guard.
+- Root cause: Resolver depended on a second Explorer selection read after combo-stage, which could drift from the original invocation snapshot.
+- Guardrail: When combo path is not used, carry exact `SelectedPaths` snapshot from combo-stage and use it directly for fallback delete; keep expected-count guard active.
+- Files affected: `NuclearDeleteFolder.ps1`.
+- Validation/tests: PowerShell parser validation passed; runtime verification pending by user logs.
+
+### 2026-02-19 - Fast COM selection reader (C#) for partial large deletes
+- Problem: Partial large selections (for example ~5700/8768 files) appeared to hang because fallback resolve spent seconds enumerating `SelectedItems` via PowerShell COM loops.
+- Root cause: `Get-ExplorerSelection` used per-item PowerShell COM iteration; retries amplified the latency.
+- Guardrail: Keep existing fail-closed selection guards, but read selection paths through a C# COM reader (`GetPathsFromCom`) with compile-once helper (`Ensure-NuclearAcceleratorType`).
+- Files affected: `NuclearDeleteFolder.ps1`.
+- Validation/tests: PowerShell parser validation passed; runtime verification pending by user logs.
+
+### 2026-02-19 - Fast fail-closed on fallback selection inflation
+- Problem: Guarded fallback could spend ~60 seconds in repeated retries and then delete only anchor path when no safe snapshot was found.
+- Root cause: Resolver retried expensive COM reads despite repeated inflated counts, and fallback default path (`AnySelectedPath`) remained active.
+- Guardrail: On first guarded inflation mismatch (`count > expected`), stop retries and fail closed (`0` targets) when expected-count mode is active; never fallback to anchor-only delete in that mode.
+- Files affected: `NuclearDeleteFolder.ps1`.
+- Validation/tests: PowerShell parser validation passed for repo + deployed runtime copy; runtime verification pending.
+
+### 2026-02-19 - Fallback resolver guard against selection inflation
+- Problem: In some runs, combo path saw a small selection (below combo threshold), but fallback resolve later expanded to near full-folder count and deleted far more items than intended.
+- Root cause: Resolver accepted a larger later snapshot without any upper-bound from the already observed combo-stage selection count.
+- Guardrail: Carry combo-stage selected count into fallback resolve and reject any fallback snapshot with count above that expected bound; prefer exact expected-count match when available.
+- Files affected: `NuclearDeleteFolder.ps1`.
+- Validation/tests: PowerShell parser validation passed for repo + deployed runtime copy; runtime log verification pending.
+
 ### 2026-02-19 - Explorer-visible counting for all-items combo detection
 - Problem: In root-drive mixed selections, combo still fell back even when user selected all visible items (files + one folder), causing slow delete and occasional missed folder.
 - Root cause: Combo all-items check used `Get-ChildItem -Force`, which counted hidden/system top-level directories not present in Explorer selection counts.

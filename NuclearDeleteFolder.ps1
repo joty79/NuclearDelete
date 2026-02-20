@@ -143,6 +143,8 @@ $script:acceleratorThreshold = $tuneConfig.accelerator_threshold
 $script:strategyMoveFirst = $tuneConfig.strategy_move_first
 $script:strategyRobocopyCombo = $tuneConfig.strategy_robocopy_combo
 $script:robocopyComboThreshold = $tuneConfig.robocopy_combo_threshold
+$script:nuclearAcceleratorChecked = $false
+$script:nuclearAcceleratorAvailable = $false
 $selectionRetryCount = $tuneConfig.selection_retry_count
 $selectionRetryDelayMs = $tuneConfig.selection_retry_delay_ms
 $largeSelectionTrustThreshold = $tuneConfig.large_selection_trust_threshold
@@ -168,7 +170,11 @@ function New-BulkResult {
         [Parameter(Mandatory = $false)]
         [string]$DropZone,
         [Parameter(Mandatory = $true)]
-        [string]$Reason
+        [string]$Reason,
+        [Parameter(Mandatory = $false)]
+        [int]$SelectedCount = -1,
+        [Parameter(Mandatory = $false)]
+        [string[]]$SelectedPaths = @()
     )
 
     return [pscustomobject]@{
@@ -176,6 +182,8 @@ function New-BulkResult {
         Success  = $Success
         DropZone = $DropZone
         Reason   = $Reason
+        SelectedCount = $SelectedCount
+        SelectedPaths = [string[]]$SelectedPaths
     }
 }
 
@@ -308,6 +316,35 @@ function Get-ExplorerSelectionContext {
             Shell  = $null
         }
     }
+}
+
+function Get-SelectionPathsFromShellItems {
+    param($Items)
+
+    if ($null -eq $Items) { return @() }
+
+    if (Ensure-NuclearAcceleratorType) {
+        try {
+            $fastPaths = [NuclearAccelerator]::GetPathsFromCom($Items)
+            if ($null -ne $fastPaths -and $fastPaths.Count -gt 0) {
+                return (Convert-ToUniqueStringArray -InputPaths ([string[]]$fastPaths))
+            }
+        }
+        catch { }
+    }
+
+    $paths = New-Object System.Collections.Generic.List[string]
+    foreach ($item in $Items) {
+        try {
+            $path = [string]$item.Path
+            if (-not [string]::IsNullOrWhiteSpace($path)) {
+                [void]$paths.Add($path.Trim())
+            }
+        }
+        catch { }
+    }
+
+    return (Convert-ToUniqueStringArray -InputPaths ([string[]]$paths.ToArray()))
 }
 
 function Remove-KeepRootMarkerFast {
@@ -515,7 +552,7 @@ function Try-RobocopyBulkScoopAndNuke {
     $selectionStageMs = $comboTimer.ElapsedMilliseconds - $stageStartMs
     if (-not $selectionContext.Found) {
         Write-DebugLog ("Robocopy combo timing totalMs={0} selection_validate_ms={1} transfer_ms={2} root_cleanup_ms={3} dropzone_delete_ms={4} sample_verify_ms={5}" -f $comboTimer.ElapsedMilliseconds, $selectionStageMs, $transferStageMs, $rootCleanupStageMs, $dropzoneDeleteStageMs, $sampleVerifyStageMs)
-        return (New-BulkResult -Used:$false -Success:$false -DropZone $null -Reason $selectionContext.Reason)
+        return (New-BulkResult -Used:$false -Success:$false -DropZone $null -Reason $selectionContext.Reason -SelectedPaths @())
     }
 
     $shell = $selectionContext.Shell
@@ -525,12 +562,13 @@ function Try-RobocopyBulkScoopAndNuke {
         $firstPath = [string]$selectionContext.FirstPath
         $window = $selectionContext.Window
         $samplePaths = @($selectionContext.SamplePaths)
+        $selectedPaths = Get-SelectionPathsFromShellItems -Items $selectionContext.Items
 
         if ($itemCount -lt $script:robocopyComboThreshold) {
-            return (New-BulkResult -Used:$false -Success:$false -DropZone $null -Reason "BelowComboThreshold")
+            return (New-BulkResult -Used:$false -Success:$false -DropZone $null -Reason "BelowComboThreshold" -SelectedCount $itemCount -SelectedPaths $selectedPaths)
         }
         if ([string]::IsNullOrWhiteSpace($sourceDirectory) -or -not [System.IO.Directory]::Exists($sourceDirectory)) {
-            return (New-BulkResult -Used:$false -Success:$false -DropZone $null -Reason "SourceDirectoryMissing")
+            return (New-BulkResult -Used:$false -Success:$false -DropZone $null -Reason "SourceDirectoryMissing" -SelectedCount $itemCount -SelectedPaths $selectedPaths)
         }
 
         # Fast select-all hint (count-only) to avoid expensive per-item COM traversal.
@@ -584,12 +622,12 @@ function Try-RobocopyBulkScoopAndNuke {
 
         if ($sampleDirectoryHits -gt 0 -and -not $allItemsSelected) {
             Write-DebugLog ("Robocopy combo blocked: sample contains directories sampleDirectoryHits={0} totalSamples={1}" -f $sampleDirectoryHits, $samplePaths.Count)
-            return (New-BulkResult -Used:$false -Success:$false -DropZone $null -Reason "SampleContainsDirectorySelection")
+            return (New-BulkResult -Used:$false -Success:$false -DropZone $null -Reason "SampleContainsDirectorySelection" -SelectedCount $itemCount -SelectedPaths $selectedPaths)
         }
 
         if (-not $fileOnlyFullSelection -and -not $allItemsSelected) {
             Write-DebugLog ("Robocopy combo blocked: not full top-level file selection selected={0} topLevelFiles={1} topLevelDirs={2} folderItems={3}" -f $itemCount, $topLevelFileCount, $topLevelDirectoryCount, $folderItemCount)
-            return (New-BulkResult -Used:$false -Success:$false -DropZone $null -Reason "NotFullTopLevelFileSelection")
+            return (New-BulkResult -Used:$false -Success:$false -DropZone $null -Reason "NotFullTopLevelFileSelection" -SelectedCount $itemCount -SelectedPaths $selectedPaths)
         }
         if ($allItemsSelected -and $topLevelDirectoryCount -gt 0) {
             Write-DebugLog ("Robocopy combo all-items mode enabled selected={0} topLevelFiles={1} topLevelDirs={2}" -f $itemCount, $topLevelFileCount, $topLevelDirectoryCount)
@@ -600,7 +638,7 @@ function Try-RobocopyBulkScoopAndNuke {
             $dropRoot = Split-Path -Path $firstPath -Parent
         }
         if ([string]::IsNullOrWhiteSpace($dropRoot)) {
-            return (New-BulkResult -Used:$true -Success:$false -DropZone $null -Reason "DropRootMissing")
+            return (New-BulkResult -Used:$true -Success:$false -DropZone $null -Reason "DropRootMissing" -SelectedCount $itemCount)
         }
 
         $dropZone = Join-Path $dropRoot ("._NuclearDrop_" + [Guid]::NewGuid().ToString("N"))
@@ -649,7 +687,7 @@ function Try-RobocopyBulkScoopAndNuke {
 
         if ($null -eq $robocopyResult -or -not $robocopyResult.Succeeded) {
             $reason = if ($null -eq $robocopyResult) { "RobocopyNoResult" } else { "RobocopyExitCode_$($robocopyResult.ExitCode)" }
-            return (New-BulkResult -Used:$true -Success:$false -DropZone $dropZone -Reason $reason)
+            return (New-BulkResult -Used:$true -Success:$false -DropZone $dropZone -Reason $reason -SelectedCount $itemCount)
         }
 
         $stageStartMs = $comboTimer.ElapsedMilliseconds
@@ -662,7 +700,7 @@ function Try-RobocopyBulkScoopAndNuke {
         if ($cleanupExit -ne 0) {
             Write-DebugLog "Robocopy combo dropZone delete failed exitCode=$cleanupExit dropZone='$dropZone'"
             Write-DebugLog ("Robocopy combo timing totalMs={0} selection_validate_ms={1} transfer_ms={2} root_cleanup_ms={3} dropzone_delete_ms={4} sample_verify_ms={5}" -f $comboTimer.ElapsedMilliseconds, $selectionStageMs, $transferStageMs, $rootCleanupStageMs, $dropzoneDeleteStageMs, $sampleVerifyStageMs)
-            return (New-BulkResult -Used:$true -Success:$false -DropZone $dropZone -Reason ("DropZoneDeleteFailed_{0}" -f $cleanupExit))
+            return (New-BulkResult -Used:$true -Success:$false -DropZone $dropZone -Reason ("DropZoneDeleteFailed_{0}" -f $cleanupExit) -SelectedCount $itemCount)
         }
         $dropZone = $null
 
@@ -672,7 +710,7 @@ function Try-RobocopyBulkScoopAndNuke {
             if ($dirCleanupExit -ne 0) {
                 Write-DebugLog ("Robocopy combo all-items directory cleanup failed exitCode={0}" -f $dirCleanupExit)
                 Write-DebugLog ("Robocopy combo timing totalMs={0} selection_validate_ms={1} transfer_ms={2} root_cleanup_ms={3} dropzone_delete_ms={4} sample_verify_ms={5}" -f $comboTimer.ElapsedMilliseconds, $selectionStageMs, $transferStageMs, $rootCleanupStageMs, $dropzoneDeleteStageMs, $sampleVerifyStageMs)
-                return (New-BulkResult -Used:$true -Success:$false -DropZone $null -Reason ("DirectoryCleanupFailed_{0}" -f $dirCleanupExit))
+                return (New-BulkResult -Used:$true -Success:$false -DropZone $null -Reason ("DirectoryCleanupFailed_{0}" -f $dirCleanupExit) -SelectedCount $itemCount)
             }
             Write-DebugLog ("Robocopy combo all-items directory cleanup ok count={0}" -f $topLevelDirectoryCount)
         }
@@ -689,7 +727,7 @@ function Try-RobocopyBulkScoopAndNuke {
         if ($remainingTopLevelFiles -gt 0) {
             Write-DebugLog "Robocopy combo post-verify failed remainingTopLevelFiles=$remainingTopLevelFiles"
             Write-DebugLog ("Robocopy combo timing totalMs={0} selection_validate_ms={1} transfer_ms={2} root_cleanup_ms={3} dropzone_delete_ms={4} sample_verify_ms={5}" -f $comboTimer.ElapsedMilliseconds, $selectionStageMs, $transferStageMs, $rootCleanupStageMs, $dropzoneDeleteStageMs, $sampleVerifyStageMs)
-            return (New-BulkResult -Used:$true -Success:$false -DropZone $null -Reason ("SourceStillHasTopLevelFiles_{0}" -f $remainingTopLevelFiles))
+            return (New-BulkResult -Used:$true -Success:$false -DropZone $null -Reason ("SourceStillHasTopLevelFiles_{0}" -f $remainingTopLevelFiles) -SelectedCount $itemCount)
         }
 
         $stageStartMs = $comboTimer.ElapsedMilliseconds
@@ -710,17 +748,17 @@ function Try-RobocopyBulkScoopAndNuke {
         if ($remainingSamples -gt 0) {
             Write-DebugLog "Robocopy combo post-verify failed remainingSamples=$remainingSamples totalSamples=$($samplePaths.Count)"
             Write-DebugLog ("Robocopy combo timing totalMs={0} selection_validate_ms={1} transfer_ms={2} root_cleanup_ms={3} dropzone_delete_ms={4} sample_verify_ms={5}" -f $comboTimer.ElapsedMilliseconds, $selectionStageMs, $transferStageMs, $rootCleanupStageMs, $dropzoneDeleteStageMs, $sampleVerifyStageMs)
-            return (New-BulkResult -Used:$true -Success:$false -DropZone $null -Reason "SourceStillHasSample")
+            return (New-BulkResult -Used:$true -Success:$false -DropZone $null -Reason "SourceStillHasSample" -SelectedCount $itemCount)
         }
 
         Write-DebugLog "Robocopy combo success samples=$($samplePaths.Count)"
         Write-DebugLog ("Robocopy combo timing totalMs={0} selection_validate_ms={1} transfer_ms={2} root_cleanup_ms={3} dropzone_delete_ms={4} sample_verify_ms={5}" -f $comboTimer.ElapsedMilliseconds, $selectionStageMs, $transferStageMs, $rootCleanupStageMs, $dropzoneDeleteStageMs, $sampleVerifyStageMs)
-        return (New-BulkResult -Used:$true -Success:$true -DropZone $null -Reason "OK")
+        return (New-BulkResult -Used:$true -Success:$true -DropZone $null -Reason "OK" -SelectedCount $itemCount)
     }
     catch {
         Write-DebugLog "Robocopy combo exception: $($_.Exception.Message)"
         Write-DebugLog ("Robocopy combo timing totalMs={0} selection_validate_ms={1} transfer_ms={2} root_cleanup_ms={3} dropzone_delete_ms={4} sample_verify_ms={5}" -f $comboTimer.ElapsedMilliseconds, $selectionStageMs, $transferStageMs, $rootCleanupStageMs, $dropzoneDeleteStageMs, $sampleVerifyStageMs)
-        return (New-BulkResult -Used:$true -Success:$false -DropZone $dropZone -Reason "Exception")
+        return (New-BulkResult -Used:$true -Success:$false -DropZone $dropZone -Reason "Exception" -SelectedCount $itemCount)
     }
     finally {
         if ($null -ne $shell) {
@@ -993,6 +1031,7 @@ function Get-ExplorerSelection {
     try {
         $shell = New-Object -ComObject Shell.Application
         $windows = $shell.Windows()
+        $acceleratorReady = Ensure-NuclearAcceleratorType
 
         foreach ($win in $windows) {
             try {
@@ -1007,6 +1046,18 @@ function Get-ExplorerSelection {
 
                 $items = $win.Document.SelectedItems()
                 if ($null -eq $items -or $items.Count -eq 0) { continue }
+
+                if ($acceleratorReady) {
+                    try {
+                        $fastPaths = [NuclearAccelerator]::GetPathsFromCom($items)
+                        if ($null -ne $fastPaths -and $fastPaths.Count -gt 0) {
+                            if ($fastPaths -contains $anchorPath) {
+                                return [string[]]$fastPaths
+                            }
+                        }
+                    }
+                    catch { }
+                }
 
                 $results = New-Object System.Collections.Generic.List[string]($items.Count)
                 $anchorHit = $false
@@ -1041,19 +1092,39 @@ function Get-ExplorerSelection {
 }
 
 function Resolve-Targets {
-    param([string]$AnySelectedPath)
+    param(
+        [string]$AnySelectedPath,
+        [int]$ExpectedSelectionCount = -1
+    )
 
     $bestTargets = @()
     $lastCount = -1
     $stableHits = 0
+    $guardMismatchHits = 0
 
     for ($attempt = 0; $attempt -lt $selectionRetryCount; $attempt++) {
         $rawTargets = Get-ExplorerSelection -AnySelectedPath $AnySelectedPath
         $count = $rawTargets.Count
 
         if ($count -gt 0) {
+            if ($ExpectedSelectionCount -gt 0 -and $count -gt $ExpectedSelectionCount) {
+                $guardMismatchHits++
+                Write-DebugLog ("Resolve targets guard skipped count={0} expected={1} attempt={2} mismatchHits={3}" -f $count, $ExpectedSelectionCount, $attempt, $guardMismatchHits)
+
+                # Fail closed quickly when fallback selection inflates beyond expected size.
+                # This avoids both dangerous over-delete and long multi-second retry loops.
+                if ($guardMismatchHits -ge 1) {
+                    break
+                }
+                continue
+            }
+
             if ($count -gt $bestTargets.Count) {
                 $bestTargets = $rawTargets
+            }
+
+            if ($ExpectedSelectionCount -gt 0 -and $count -eq $ExpectedSelectionCount) {
+                return $rawTargets
             }
 
             if ($count -ge $largeSelectionTrustThreshold) {
@@ -1074,6 +1145,15 @@ function Resolve-Targets {
         }
 
         Start-Sleep -Milliseconds $selectionRetryDelayMs
+    }
+
+    if ($ExpectedSelectionCount -gt 0) {
+        if ($bestTargets.Count -gt 0 -and $bestTargets.Count -le $ExpectedSelectionCount) {
+            return $bestTargets
+        }
+
+        Write-DebugLog ("Resolve targets guard abort expected={0} bestCount={1}" -f $ExpectedSelectionCount, $bestTargets.Count)
+        return @()
     }
 
     if ($bestTargets.Count -gt 0) {
@@ -1105,6 +1185,48 @@ using System.IO;
 using System.Threading.Tasks;
 
 public static class NuclearAccelerator {
+    // Fast COM reader to avoid slow PowerShell foreach over large SelectedItems.
+    public static string[] GetPathsFromCom(object selectionObject) {
+        var list = new List<string>();
+        if (selectionObject == null) return list.ToArray();
+
+        try {
+            var selectionType = selectionObject.GetType();
+            var countProperty = selectionType.GetProperty("Count");
+            var itemMethod = selectionType.GetMethod("Item");
+            if (countProperty == null || itemMethod == null) return list.ToArray();
+
+            int count = Convert.ToInt32(countProperty.GetValue(selectionObject, null));
+            for (int i = 0; i < count; i++) {
+                object item = null;
+                try {
+                    item = itemMethod.Invoke(selectionObject, new object[] { i });
+                }
+                catch {
+                    continue;
+                }
+
+                if (item == null) continue;
+                try {
+                    var pathProperty = item.GetType().GetProperty("Path");
+                    if (pathProperty == null) continue;
+
+                    var rawPath = pathProperty.GetValue(item, null);
+                    if (rawPath == null) continue;
+
+                    var path = rawPath.ToString();
+                    if (!string.IsNullOrWhiteSpace(path)) {
+                        list.Add(path.Trim());
+                    }
+                }
+                catch { }
+            }
+        }
+        catch { }
+
+        return list.ToArray();
+    }
+
     public static string[] Nuke(string[] paths) {
         var failed = new ConcurrentBag<string>();
         var dirs = new ConcurrentBag<string>();
@@ -1163,8 +1285,36 @@ public static class NuclearAccelerator {
 "@
 }
 
+function Ensure-NuclearAcceleratorType {
+    if ($script:nuclearAcceleratorChecked) {
+        return $script:nuclearAcceleratorAvailable
+    }
+
+    $script:nuclearAcceleratorChecked = $true
+    $script:nuclearAcceleratorAvailable = $false
+
+    if ([System.Management.Automation.PSTypeName]"NuclearAccelerator".Type) {
+        $script:nuclearAcceleratorAvailable = $true
+        return $true
+    }
+
+    try {
+        Add-Type -TypeDefinition (Get-NuclearAcceleratorSource) -Language CSharp -ErrorAction Stop | Out-Null
+        $script:nuclearAcceleratorAvailable = $true
+    }
+    catch {
+        Write-DebugLog "CSharp compile failed: $($_.Exception.Message)"
+        $script:nuclearAcceleratorAvailable = $false
+    }
+
+    return $script:nuclearAcceleratorAvailable
+}
+
 function Invoke-DeleteBatch {
-    param([string[]]$Targets)
+    param(
+        [string[]]$Targets,
+        [bool]$PreferAccelerator = $false
+    )
 
     if ($null -eq $Targets -or $Targets.Count -eq 0) { return 1 }
 
@@ -1174,20 +1324,19 @@ function Invoke-DeleteBatch {
     $useAccelerator = $false
     $failedItems = @()
 
-    if ($script:acceleratorEnabled -and $targetsArray.Count -ge $script:acceleratorThreshold) {
-        if ([System.Management.Automation.PSTypeName]"NuclearAccelerator".Type) {
-            $useAccelerator = $true
+    $preferAcceleratorFloor = 100
+    $acceleratorRequested = (
+        $script:acceleratorEnabled -and (
+            $targetsArray.Count -ge $script:acceleratorThreshold -or
+            ($PreferAccelerator -and $targetsArray.Count -ge $preferAcceleratorFloor)
+        )
+    )
+
+    if ($acceleratorRequested) {
+        if ($PreferAccelerator -and $targetsArray.Count -lt $script:acceleratorThreshold) {
+            Write-DebugLog ("Delete path: accelerator preferred for snapshot count={0} threshold={1}" -f $targetsArray.Count, $script:acceleratorThreshold)
         }
-        else {
-            try {
-                Add-Type -TypeDefinition (Get-NuclearAcceleratorSource) -Language CSharp -ErrorAction Stop | Out-Null
-                $useAccelerator = $true
-            }
-            catch {
-                $useAccelerator = $false
-                Write-DebugLog "CSharp compile failed: $($_.Exception.Message)"
-            }
-        }
+        $useAccelerator = Ensure-NuclearAcceleratorType
     }
 
     if ($useAccelerator) {
@@ -1348,13 +1497,50 @@ try {
         }
     }
 
+    $expectedSelectionCount = -1
+    if ($script:strategyRobocopyCombo -and $null -ne $roboResult -and $roboResult.PSObject.Properties.Name -contains "SelectedCount") {
+        try {
+            $candidateExpected = [int]$roboResult.SelectedCount
+            if ($candidateExpected -gt 0) {
+                $expectedSelectionCount = $candidateExpected
+                Write-DebugLog "Resolve targets expected-count hint from combo=$expectedSelectionCount"
+            }
+        }
+        catch { }
+    }
+
+    $targets = @()
     $stageStartMs = $mainTimer.ElapsedMilliseconds
-    $targets = Resolve-Targets -AnySelectedPath $AnchorPath
+    $usedComboSelectionSnapshot = $false
+    if ($script:strategyRobocopyCombo -and $null -ne $roboResult -and -not $roboResult.Used -and $roboResult.PSObject.Properties.Name -contains "SelectedPaths") {
+        try {
+            $comboSelectionSnapshot = Convert-ToUniqueStringArray -InputPaths ([string[]]$roboResult.SelectedPaths)
+            if ($comboSelectionSnapshot.Count -gt 0) {
+                if ($expectedSelectionCount -gt 0 -and $comboSelectionSnapshot.Count -gt $expectedSelectionCount) {
+                    Write-DebugLog ("Resolve targets combo-snapshot rejected count={0} expected={1}" -f $comboSelectionSnapshot.Count, $expectedSelectionCount)
+                }
+                else {
+                    $targets = $comboSelectionSnapshot
+                    $usedComboSelectionSnapshot = $true
+                    Write-DebugLog ("Resolve targets using combo selection snapshot count={0}" -f $targets.Count)
+                }
+            }
+        }
+        catch { }
+    }
+
+    if (-not $usedComboSelectionSnapshot) {
+        $targets = Resolve-Targets -AnySelectedPath $AnchorPath -ExpectedSelectionCount $expectedSelectionCount
+    }
     $resolveTargetsMs = $mainTimer.ElapsedMilliseconds - $stageStartMs
     Write-DebugLog "Resolved targets count=$($targets.Count)"
 
     $stageStartMs = $mainTimer.ElapsedMilliseconds
-    $exitCode = Invoke-DeleteBatch -Targets $targets
+    $preferAcceleratorForStandardDelete = (
+        ($usedComboSelectionSnapshot -or $expectedSelectionCount -gt 0) -and
+        $targets.Count -ge 100
+    )
+    $exitCode = Invoke-DeleteBatch -Targets $targets -PreferAccelerator:$preferAcceleratorForStandardDelete
     $deleteBatchMs = $mainTimer.ElapsedMilliseconds - $stageStartMs
     Write-MainTimingSummary -ExitCode $exitCode -PathName "Standard resolve/delete path" -TotalMs $mainTimer.ElapsedMilliseconds -RobocopyComboMs $robocopyComboMs -ExplorerMoveFirstMs $explorerMoveFirstMs -ResolveTargetsMs $resolveTargetsMs -DeleteBatchMs $deleteBatchMs
     Write-DebugLog "End exitCode=$exitCode"
