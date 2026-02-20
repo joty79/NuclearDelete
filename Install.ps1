@@ -112,6 +112,7 @@ function Get-RequiredPackageEntries {
         'NuclearDeleteFolder.ps1',
         'NuclearDeleteFolder.vbs',
         'EmptyRecycleBinFast.ps1',
+        'EmptyRecycleBinFast.vbs',
         '.assets\nuke.ico',
         'DeleteTune.ps1',
         'DeleteTune.json',
@@ -396,9 +397,9 @@ function Register-NuclearContextMenu {
 
     $vbsEscaped = Convert-ToRegEscapedPath -Path $InstalledVbsPath
     $commandValue = ('wscript.exe "{0}" "%1"' -f $vbsEscaped)
-    $recycleScriptPath = Join-Path $InstallPath 'EmptyRecycleBinFast.ps1'
-    $recycleScriptEscaped = Convert-ToRegEscapedPath -Path $recycleScriptPath
-    $recycleCommandValue = ('pwsh.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}"' -f $recycleScriptEscaped)
+    $recycleVbsPath = Join-Path $InstallPath 'EmptyRecycleBinFast.vbs'
+    $recycleVbsEscaped = Convert-ToRegEscapedPath -Path $recycleVbsPath
+    $recycleCommandValue = ('wscript.exe "{0}"' -f $recycleVbsEscaped)
     $iconPath = Join-Path $InstallPath '.assets\nuke.ico'
     $iconPathEscaped = Convert-ToRegEscapedPath -Path $iconPath
 

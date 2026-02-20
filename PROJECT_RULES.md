@@ -16,6 +16,13 @@
 - Prefer side-by-side experiments (for example, RoboCopy-based flow) instead of replacing the native path directly.
 
 ## Decision Log
+### 2026-02-20 - Recycle cleanup invoked via hidden VBS launcher
+- Problem: Recycle cleanup action produced a visible flash when launched from desktop background menu.
+- Root cause: Registry command invoked PowerShell directly.
+- Guardrail: Invoke recycle cleanup through `wscript.exe` + `EmptyRecycleBinFast.vbs` (hidden), then launch the PowerShell cleanup script from VBS.
+- Files affected: `Install.ps1`, `NuclearDeleteFolder.reg`, `EmptyRecycleBinFast.vbs`.
+- Validation/tests: PowerShell parser validation (`Install.ps1`) and registry command path review.
+
 ### 2026-02-20 - Background recycle menu separator tuning
 - Problem: Desktop background `Recycle Bin` cascade showed separator above but not below in Explorer.
 - Root cause: `Position=Bottom` with `CommandFlags=0x60` on this background shell key caused inconsistent separator rendering.

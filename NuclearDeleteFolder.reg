@@ -41,4 +41,4 @@ Windows Registry Editor Version 5.00
 "Icon"="D:\\Users\\joty79\\scripts\\NuclearDelete\\.assets\\nuke.ico"
 
 [HKEY_CURRENT_USER\Software\Classes\Directory\Background\ContextMenus\RecycleBinTools\shell\run\command]
-@="pwsh.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"D:\\Users\\joty79\\scripts\\NuclearDelete\\EmptyRecycleBinFast.ps1\""
+@="wscript.exe \"D:\\Users\\joty79\\scripts\\NuclearDelete\\EmptyRecycleBinFast.vbs\""
