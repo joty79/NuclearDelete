@@ -44,6 +44,20 @@
 - Files affected: `Install.ps1`, `README.md`.
 - Validation/tests: PowerShell parser validation (`Install.ps1: OK`), non-destructive action check (`-Action Exit`).
 
+### 2026-02-20 - Unified custom nuke icon for NuclearDelete and Recycle Bin menus
+- Problem: Menu icons were mixed (`imageres/shell32`) and not visually consistent across NuclearDelete and Recycle Bin actions.
+- Root cause: Registry icon values were hardcoded to system icon resources in both installer and `.reg` layout.
+- Guardrail: Use one shared icon asset (`.assets\nuke.ico`) for both parent and child menu items (Delete to Oblivion + Recycle Bin).
+- Files affected: `Install.ps1`, `NuclearDeleteFolder.reg`, `.assets/nuke.ico`.
+- Validation/tests: PowerShell parser validation (`Install.ps1`) and file existence check for `.assets\nuke.ico`.
+
+### 2026-02-20 - Separate Recycle Bin submenu for folder/background
+- Problem: Putting recycle cleanup inside `Delete to Oblivion` submenu increased misclick risk during permanent-delete usage.
+- Root cause: Recycle action and permanent-delete action shared the same `AllFilesystemObjects` submenu.
+- Guardrail: Keep `Delete to Oblivion` for permanent delete only; expose recycle cleanup via separate `Recycle Bin` cascade submenu under `Directory` and `Directory\Background`.
+- Files affected: `Install.ps1`, `NuclearDeleteFolder.reg`, `EmptyRecycleBinFast.ps1`.
+- Validation/tests: PowerShell parser validation (`Install.ps1`, `EmptyRecycleBinFast.ps1`) and registry structure review.
+
 ### 2026-02-19 - Add installer workflow + RoboTune-style DeleteTune UI
 - Problem: NuclearDelete lacked a consistent install/uninstall flow and DeleteTune visual style differed from RoboTune.
 - Root cause: Manual `.reg` import + hardcoded script paths caused friction and inconsistent UX.

@@ -112,6 +112,7 @@ function Get-RequiredPackageEntries {
         'NuclearDeleteFolder.ps1',
         'NuclearDeleteFolder.vbs',
         'EmptyRecycleBinFast.ps1',
+        '.assets\nuke.ico',
         'DeleteTune.ps1',
         'DeleteTune.json',
         'README.md'
@@ -326,11 +327,19 @@ function Get-RegistryCleanupPaths {
         'HKCU\Software\Classes\AllFilesystemObjects\ContextMenus\DeleteToOblivion',
         'HKCU\Software\Classes\Directory\shell\z_10_DeleteToOblivion',
         'HKCU\Software\Classes\Directory\ContextMenus\DeleteToOblivion',
+        'HKCU\Software\Classes\Directory\shell\z_09_RecycleBinTools',
+        'HKCU\Software\Classes\Directory\ContextMenus\RecycleBinTools',
+        'HKCU\Software\Classes\Directory\Background\shell\z_09_RecycleBinTools',
+        'HKCU\Software\Classes\Directory\Background\ContextMenus\RecycleBinTools',
         'HKCU\Software\Classes\Directory\shell\NuclearDeleteFolder',
         'HKCR\AllFilesystemObjects\shell\z_10_DeleteToOblivion',
         'HKCR\AllFilesystemObjects\ContextMenus\DeleteToOblivion',
         'HKCR\Directory\shell\z_10_DeleteToOblivion',
         'HKCR\Directory\ContextMenus\DeleteToOblivion',
+        'HKCR\Directory\shell\z_09_RecycleBinTools',
+        'HKCR\Directory\ContextMenus\RecycleBinTools',
+        'HKCR\Directory\Background\shell\z_09_RecycleBinTools',
+        'HKCR\Directory\Background\ContextMenus\RecycleBinTools',
         'HKCR\Directory\shell\NuclearDeleteFolder'
     )
 }
@@ -377,25 +386,46 @@ function Register-NuclearContextMenu {
     $recycleScriptPath = Join-Path $InstallPath 'EmptyRecycleBinFast.ps1'
     $recycleScriptEscaped = Convert-ToRegEscapedPath -Path $recycleScriptPath
     $recycleCommandValue = ('pwsh.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}"' -f $recycleScriptEscaped)
+    $iconPath = Join-Path $InstallPath '.assets\nuke.ico'
+    $iconPathEscaped = Convert-ToRegEscapedPath -Path $iconPath
 
     $parentKey = 'HKCU\Software\Classes\AllFilesystemObjects\shell\z_10_DeleteToOblivion'
-    $recycleChildKey = 'HKCU\Software\Classes\AllFilesystemObjects\ContextMenus\DeleteToOblivion\shell\a_00_EmptyRecycleBin'
-    $recycleCommandKey = 'HKCU\Software\Classes\AllFilesystemObjects\ContextMenus\DeleteToOblivion\shell\a_00_EmptyRecycleBin\command'
     $childKey = 'HKCU\Software\Classes\AllFilesystemObjects\ContextMenus\DeleteToOblivion\shell\run'
     $commandKey = 'HKCU\Software\Classes\AllFilesystemObjects\ContextMenus\DeleteToOblivion\shell\run\command'
+    $recycleDirParentKey = 'HKCU\Software\Classes\Directory\shell\z_09_RecycleBinTools'
+    $recycleDirChildKey = 'HKCU\Software\Classes\Directory\ContextMenus\RecycleBinTools\shell\run'
+    $recycleDirCommandKey = 'HKCU\Software\Classes\Directory\ContextMenus\RecycleBinTools\shell\run\command'
+    $recycleBgParentKey = 'HKCU\Software\Classes\Directory\Background\shell\z_09_RecycleBinTools'
+    $recycleBgChildKey = 'HKCU\Software\Classes\Directory\Background\ContextMenus\RecycleBinTools\shell\run'
+    $recycleBgCommandKey = 'HKCU\Software\Classes\Directory\Background\ContextMenus\RecycleBinTools\shell\run\command'
 
     Add-RegStringValue -Key $parentKey -Name 'MUIVerb' -Value 'Delete to Oblivion'
-    Add-RegStringValue -Key $parentKey -Name 'Icon' -Value 'imageres.dll,-94'
+    Add-RegStringValue -Key $parentKey -Name 'Icon' -Value $iconPathEscaped
     Add-RegStringValue -Key $parentKey -Name 'Position' -Value 'Bottom'
     Add-RegStringValue -Key $parentKey -Name 'SeparatorBefore' -Value ''
     Add-RegStringValue -Key $parentKey -Name 'ExtendedSubCommandsKey' -Value 'AllFilesystemObjects\ContextMenus\DeleteToOblivion'
-    Add-RegStringValue -Key $recycleChildKey -Name 'MUIVerb' -Value 'Empty Recycle Bin (All Volumes)'
-    Add-RegStringValue -Key $recycleChildKey -Name 'Icon' -Value 'shell32.dll,-31'
-    Add-RegDefaultValue -Key $recycleCommandKey -Value $recycleCommandValue
     Add-RegStringValue -Key $childKey -Name 'MUIVerb' -Value 'Delete Permanently'
-    Add-RegStringValue -Key $childKey -Name 'Icon' -Value 'imageres.dll,-94'
+    Add-RegStringValue -Key $childKey -Name 'Icon' -Value $iconPathEscaped
     Add-RegStringValue -Key $childKey -Name 'MultiSelectModel' -Value 'Document'
     Add-RegDefaultValue -Key $commandKey -Value $commandValue
+
+    Add-RegStringValue -Key $recycleDirParentKey -Name 'MUIVerb' -Value 'Recycle Bin'
+    Add-RegStringValue -Key $recycleDirParentKey -Name 'Icon' -Value $iconPathEscaped
+    Add-RegStringValue -Key $recycleDirParentKey -Name 'Position' -Value 'Bottom'
+    Add-RegStringValue -Key $recycleDirParentKey -Name 'SeparatorBefore' -Value ''
+    Add-RegStringValue -Key $recycleDirParentKey -Name 'ExtendedSubCommandsKey' -Value 'Directory\ContextMenus\RecycleBinTools'
+    Add-RegStringValue -Key $recycleDirChildKey -Name 'MUIVerb' -Value 'Empty Recycle Bin (All Volumes)'
+    Add-RegStringValue -Key $recycleDirChildKey -Name 'Icon' -Value $iconPathEscaped
+    Add-RegDefaultValue -Key $recycleDirCommandKey -Value $recycleCommandValue
+
+    Add-RegStringValue -Key $recycleBgParentKey -Name 'MUIVerb' -Value 'Recycle Bin'
+    Add-RegStringValue -Key $recycleBgParentKey -Name 'Icon' -Value $iconPathEscaped
+    Add-RegStringValue -Key $recycleBgParentKey -Name 'Position' -Value 'Bottom'
+    Add-RegStringValue -Key $recycleBgParentKey -Name 'SeparatorBefore' -Value ''
+    Add-RegStringValue -Key $recycleBgParentKey -Name 'ExtendedSubCommandsKey' -Value 'Directory\Background\ContextMenus\RecycleBinTools'
+    Add-RegStringValue -Key $recycleBgChildKey -Name 'MUIVerb' -Value 'Empty Recycle Bin (All Volumes)'
+    Add-RegStringValue -Key $recycleBgChildKey -Name 'Icon' -Value $iconPathEscaped
+    Add-RegDefaultValue -Key $recycleBgCommandKey -Value $recycleCommandValue
 }
 
 function Deploy-PackageFiles {
