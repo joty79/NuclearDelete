@@ -44,6 +44,61 @@ function Write-Step {
     Write-Host ('[>] {0}' -f $Text) -ForegroundColor $Color
 }
 
+function Test-IsProcessElevated {
+    try {
+        $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+        if (-not $identity) { return $false }
+        $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+        return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    }
+    catch {
+        return $false
+    }
+}
+
+function Invoke-SelfElevatedAction {
+    param([Parameter(Mandatory)][string]$TargetAction)
+
+    $selfPath = $PSCommandPath
+    if ([string]::IsNullOrWhiteSpace($selfPath) -and $MyInvocation.MyCommand) {
+        $selfPath = $MyInvocation.MyCommand.Definition
+    }
+    if ([string]::IsNullOrWhiteSpace($selfPath) -or -not (Test-Path -LiteralPath $selfPath)) {
+        throw 'Cannot locate installer script path for elevation.'
+    }
+
+    $pwshCmd = Get-Command -Name 'pwsh.exe' -ErrorAction SilentlyContinue
+    if (-not $pwshCmd) {
+        throw 'pwsh.exe is required for elevated install actions.'
+    }
+
+    $argList = @(
+        '-NoProfile',
+        '-ExecutionPolicy', 'Bypass',
+        '-File', ('"{0}"' -f $selfPath),
+        '-Action', $TargetAction,
+        '-InstallPath', ('"{0}"' -f $InstallPath),
+        '-SourcePath', ('"{0}"' -f $SourcePath),
+        '-PackageSource', $script:PackageSource,
+        '-GitHubRepo', $script:GitHubRepo,
+        '-GitHubRef', $script:GitHubRef,
+        '-Force'
+    )
+    if (-not [string]::IsNullOrWhiteSpace($GitHubZipUrl)) {
+        $argList += @('-GitHubZipUrl', ('"{0}"' -f $GitHubZipUrl))
+    }
+    if ($NoExplorerRestart) {
+        $argList += '-NoExplorerRestart'
+    }
+
+    $argumentString = [string]::Join(' ', $argList)
+    $process = Start-Process -FilePath $pwshCmd.Source -ArgumentList $argumentString -Verb RunAs -Wait -PassThru
+    if ($null -eq $process) {
+        throw 'Failed to start elevated installer process.'
+    }
+    return [int]$process.ExitCode
+}
+
 function Ensure-Directory {
     param([Parameter(Mandatory)][string]$Path)
     if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
@@ -452,6 +507,10 @@ function Invoke-Main {
                 Write-Host 'Cancelled.' -ForegroundColor Yellow
                 return 0
             }
+            if (-not (Test-IsProcessElevated)) {
+                Write-Step -Text 'Install requires elevation for reliable registry write-through. Requesting admin rights...' -Color Yellow
+                return (Invoke-SelfElevatedAction -TargetAction 'Install')
+            }
             Install-NuclearDelete -Mode 'Install'
             Restart-ExplorerShell
             return 0
@@ -465,6 +524,10 @@ function Invoke-Main {
                 Write-Host 'Cancelled.' -ForegroundColor Yellow
                 return 0
             }
+            if (-not (Test-IsProcessElevated)) {
+                Write-Step -Text 'Update requires elevation for reliable registry write-through. Requesting admin rights...' -Color Yellow
+                return (Invoke-SelfElevatedAction -TargetAction 'Update')
+            }
             Install-NuclearDelete -Mode 'Update'
             Restart-ExplorerShell
             return 0
@@ -474,6 +537,10 @@ function Invoke-Main {
             if (-not (Confirm-Action -Prompt "Install NuclearDelete from GitHub '$GitHubRef' to '$InstallPath'?")) {
                 Write-Host 'Cancelled.' -ForegroundColor Yellow
                 return 0
+            }
+            if (-not (Test-IsProcessElevated)) {
+                Write-Step -Text 'Install (GitHub) requires elevation for reliable registry write-through. Requesting admin rights...' -Color Yellow
+                return (Invoke-SelfElevatedAction -TargetAction 'InstallGitHub')
             }
             Install-NuclearDelete -Mode 'Install'
             Restart-ExplorerShell
@@ -485,6 +552,10 @@ function Invoke-Main {
                 Write-Host 'Cancelled.' -ForegroundColor Yellow
                 return 0
             }
+            if (-not (Test-IsProcessElevated)) {
+                Write-Step -Text 'Update (GitHub) requires elevation for reliable registry write-through. Requesting admin rights...' -Color Yellow
+                return (Invoke-SelfElevatedAction -TargetAction 'UpdateGitHub')
+            }
             Install-NuclearDelete -Mode 'Update'
             Restart-ExplorerShell
             return 0
@@ -493,6 +564,10 @@ function Invoke-Main {
             if (-not (Confirm-Action -Prompt "Uninstall NuclearDelete from '$InstallPath'?")) {
                 Write-Host 'Cancelled.' -ForegroundColor Yellow
                 return 0
+            }
+            if (-not (Test-IsProcessElevated)) {
+                Write-Step -Text 'Uninstall requires elevation for full registry cleanup. Requesting admin rights...' -Color Yellow
+                return (Invoke-SelfElevatedAction -TargetAction 'Uninstall')
             }
             Uninstall-NuclearDelete
             Restart-ExplorerShell

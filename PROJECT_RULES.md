@@ -16,6 +16,13 @@
 - Prefer side-by-side experiments (for example, RoboCopy-based flow) instead of replacing the native path directly.
 
 ## Decision Log
+### 2026-02-20 - Installer self-elevation parity for install/update/uninstall
+- Problem: NuclearDelete installer actions could run non-elevated, causing inconsistent registry cleanup/write-through behavior across machines.
+- Root cause: `Install.ps1` had no self-elevation path (`RunAs`) for install/update/uninstall actions.
+- Guardrail: `Install.ps1` must enforce elevation via self-relaunch (`pwsh.exe -Verb RunAs`) when action requires registry modifications.
+- Files affected: `Install.ps1`, `PROJECT_RULES.md`.
+- Validation/tests: PowerShell parser validation (`Install.ps1: OK`), static check for elevation hooks in all action branches.
+
 ### 2026-02-19 - Consolidate runtime state under NuclearDeleteContext
 - Problem: Runtime created a second appdata folder (`%LOCALAPPDATA%\NuclearDelete`) while installer/runtime files live under `%LOCALAPPDATA%\NuclearDeleteContext`.
 - Root cause: `NuclearDeleteFolder.ps1`, `DeleteTune.ps1`, and `NuclearDeleteFolder.vbs` used `NuclearDelete` as `stateRoot`.
