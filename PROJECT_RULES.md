@@ -16,6 +16,13 @@
 - Prefer side-by-side experiments (for example, RoboCopy-based flow) instead of replacing the native path directly.
 
 ## Decision Log
+### 2026-02-20 - Background recycle menu separator tuning
+- Problem: Desktop background `Recycle Bin` cascade showed separator above but not below in Explorer.
+- Root cause: `Position=Bottom` with `CommandFlags=0x60` on this background shell key caused inconsistent separator rendering.
+- Guardrail: For `Directory\Background\shell\z_99_RecycleBinTools`, do not set `Position`; use `CommandFlags=0x20` only.
+- Files affected: `Install.ps1`, `NuclearDeleteFolder.reg`.
+- Validation/tests: PowerShell parser validation (`Install.ps1`) and registry value check.
+
 ### 2026-02-20 - Background recycle menu uses CommandFlags separators
 - Problem: Desktop background `Recycle Bin` menu showed separator before but not after.
 - Root cause: `SeparatorBefore` string behavior was inconsistent for this cascade entry in Explorer.

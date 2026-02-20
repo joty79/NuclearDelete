@@ -421,8 +421,7 @@ function Register-NuclearContextMenu {
 
     Add-RegStringValue -Key $recycleBgParentKey -Name 'MUIVerb' -Value 'Recycle Bin'
     Add-RegStringValue -Key $recycleBgParentKey -Name 'Icon' -Value $iconPathEscaped
-    Add-RegStringValue -Key $recycleBgParentKey -Name 'Position' -Value 'Bottom'
-    Add-RegDwordValue -Key $recycleBgParentKey -Name 'CommandFlags' -Value 0x60
+    Add-RegDwordValue -Key $recycleBgParentKey -Name 'CommandFlags' -Value 0x20
     Add-RegStringValue -Key $recycleBgParentKey -Name 'ExtendedSubCommandsKey' -Value 'Directory\Background\ContextMenus\RecycleBinTools'
     Add-RegStringValue -Key $recycleBgChildKey -Name 'MUIVerb' -Value 'Empty Recycle Bin (All Volumes)'
     Add-RegStringValue -Key $recycleBgChildKey -Name 'Icon' -Value $iconPathEscaped
