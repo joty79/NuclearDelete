@@ -111,6 +111,7 @@ function Get-RequiredPackageEntries {
         'Install.ps1',
         'NuclearDeleteFolder.ps1',
         'NuclearDeleteFolder.vbs',
+        'EmptyRecycleBinFast.ps1',
         'DeleteTune.ps1',
         'DeleteTune.json',
         'README.md'
@@ -373,8 +374,13 @@ function Register-NuclearContextMenu {
 
     $vbsEscaped = Convert-ToRegEscapedPath -Path $InstalledVbsPath
     $commandValue = ('wscript.exe "{0}" "%1"' -f $vbsEscaped)
+    $recycleScriptPath = Join-Path $InstallPath 'EmptyRecycleBinFast.ps1'
+    $recycleScriptEscaped = Convert-ToRegEscapedPath -Path $recycleScriptPath
+    $recycleCommandValue = ('pwsh.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}"' -f $recycleScriptEscaped)
 
     $parentKey = 'HKCU\Software\Classes\AllFilesystemObjects\shell\z_10_DeleteToOblivion'
+    $recycleChildKey = 'HKCU\Software\Classes\AllFilesystemObjects\ContextMenus\DeleteToOblivion\shell\a_00_EmptyRecycleBin'
+    $recycleCommandKey = 'HKCU\Software\Classes\AllFilesystemObjects\ContextMenus\DeleteToOblivion\shell\a_00_EmptyRecycleBin\command'
     $childKey = 'HKCU\Software\Classes\AllFilesystemObjects\ContextMenus\DeleteToOblivion\shell\run'
     $commandKey = 'HKCU\Software\Classes\AllFilesystemObjects\ContextMenus\DeleteToOblivion\shell\run\command'
 
@@ -383,6 +389,9 @@ function Register-NuclearContextMenu {
     Add-RegStringValue -Key $parentKey -Name 'Position' -Value 'Bottom'
     Add-RegStringValue -Key $parentKey -Name 'SeparatorBefore' -Value ''
     Add-RegStringValue -Key $parentKey -Name 'ExtendedSubCommandsKey' -Value 'AllFilesystemObjects\ContextMenus\DeleteToOblivion'
+    Add-RegStringValue -Key $recycleChildKey -Name 'MUIVerb' -Value 'Empty Recycle Bin (All Volumes)'
+    Add-RegStringValue -Key $recycleChildKey -Name 'Icon' -Value 'shell32.dll,-31'
+    Add-RegDefaultValue -Key $recycleCommandKey -Value $recycleCommandValue
     Add-RegStringValue -Key $childKey -Name 'MUIVerb' -Value 'Delete Permanently'
     Add-RegStringValue -Key $childKey -Name 'Icon' -Value 'imageres.dll,-94'
     Add-RegStringValue -Key $childKey -Name 'MultiSelectModel' -Value 'Document'

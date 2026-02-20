@@ -16,6 +16,13 @@
 - Prefer side-by-side experiments (for example, RoboCopy-based flow) instead of replacing the native path directly.
 
 ## Decision Log
+### 2026-02-20 - Add fast recycle-bin cleanup action in Delete to Oblivion submenu
+- Problem: Users needed one-click, fast recycle-bin cleanup across all local volumes from the same NuclearDelete submenu.
+- Root cause: Existing submenu only exposed permanent delete action and no recycle-bin purge helper.
+- Guardrail: Keep recycle cleanup path simple and fast: enumerate local drive letters and run `cmd /c rd /s /q X:\$Recycle.Bin` per volume (single pass).
+- Files affected: `Install.ps1`, `EmptyRecycleBinFast.ps1`, `PROJECT_RULES.md`.
+- Validation/tests: PowerShell parser validation (`Install.ps1`, `EmptyRecycleBinFast.ps1`) passed.
+
 ### 2026-02-20 - Installer self-elevation parity for install/update/uninstall
 - Problem: NuclearDelete installer actions could run non-elevated, causing inconsistent registry cleanup/write-through behavior across machines.
 - Root cause: `Install.ps1` had no self-elevation path (`RunAs`) for install/update/uninstall actions.

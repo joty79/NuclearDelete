@@ -21,5 +21,12 @@ Windows Registry Editor Version 5.00
 "Icon"="imageres.dll,-94"
 "MultiSelectModel"="Document"
 
+[HKEY_CURRENT_USER\Software\Classes\AllFilesystemObjects\ContextMenus\DeleteToOblivion\shell\a_00_EmptyRecycleBin]
+"MUIVerb"="Empty Recycle Bin (All Volumes)"
+"Icon"="shell32.dll,-31"
+
+[HKEY_CURRENT_USER\Software\Classes\AllFilesystemObjects\ContextMenus\DeleteToOblivion\shell\a_00_EmptyRecycleBin\command]
+@="pwsh.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"D:\\Users\\joty79\\scripts\\NuclearDelete\\EmptyRecycleBinFast.ps1\""
+
 [HKEY_CURRENT_USER\Software\Classes\AllFilesystemObjects\ContextMenus\DeleteToOblivion\shell\run\command]
 @="wscript.exe \"D:\\Users\\joty79\\scripts\\NuclearDelete\\NuclearDeleteFolder.vbs\" \"%1\""
